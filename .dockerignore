@@ -1,0 +1,12 @@
+**/node_modules
+**/.env
+**/data
+**/pgdata
+**/__pycache__
+**/dist
+**/test
+**/tests
+**/__tests__
+source-review
+*.zip
+.git

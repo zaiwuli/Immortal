@@ -1,0 +1,16 @@
+repos:
+  - repo: local
+    hooks:
+      - id: architecture-check
+        name: Architecture Check
+        entry: python scripts/check_architecture.py
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: entropy-check
+        name: Entropy Check
+        entry: python scripts/entropy_manager.py
+        language: system
+        pass_filenames: false
+        types: [python]

@@ -1,0 +1,35 @@
+services:
+  immortal:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - ./data:/data
+      - ${MEDIA_DIR:-./media}:/media
+    environment:
+      TZ: Asia/Shanghai
+      POSTGRES_HOST: postgresql
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: immortal
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: immortal
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    restart: unless-stopped
+  postgresql:
+    image: postgres:17.1
+    environment:
+      POSTGRES_USER: immortal
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: immortal
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U immortal -d immortal"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
