@@ -1,5 +1,7 @@
 # 色花堂采集器
 
+仓库：https://github.com/zaiwuli/sehuatang-collector
+
 无账号的色花堂采集后台，支持文章管理、CSV 导入、智能增量或指定页采集、转换同步和中文日志。仅部署于可信网络。
 
 ## Docker 部署
@@ -19,14 +21,14 @@ docker compose up -d
 
 启动先检查 Avdb 原有 `article` 表及所需字段；缺少时启动失败，不自行创建或迁移 Avdb 主表。只自动创建以下 6 张采集器表：
 
-- immortal_article：采集与 CSV 导入的原始记录
-- immortal_article_converted：转换结果、内容指纹及同步状态
-- immortal_task：采集计划
-- immortal_batch：批次汇总
-- immortal_task_log：采集日志
-- immortal_config：网络及同步设置
+- sehuatang_collector_article：采集与 CSV 导入的原始记录
+- sehuatang_collector_article_converted：转换结果、内容指纹及同步状态
+- sehuatang_collector_task：采集计划
+- sehuatang_collector_batch：批次汇总
+- sehuatang_collector_task_log：采集日志
+- sehuatang_collector_config：网络及同步设置
 
-不会创建 immortal_article_target 或 immortal_batch_item。旧版本已存在的测试表不自动删除。不要将开发测试库直接当作正式 Avdb 使用。
+不会创建额外的测试目标表或批次明细表。升级时自动将六张旧 immortal_ 表原地改名为 sehuatang_collector_ 前缀，保留数据、配置和日志；新旧表同时存在时停止启动并提示先合并数据。旧版本额外的测试表不自动删除。不要将开发测试库直接当作正式 Avdb 使用。
 
 ## 采集和同步
 

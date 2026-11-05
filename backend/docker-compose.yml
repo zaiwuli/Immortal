@@ -1,5 +1,5 @@
 services:
-  immortal:
+  sehuatang-collector:
     build:
       context: ..
       dockerfile: backend/Dockerfile
@@ -12,5 +12,5 @@ services:
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-immortal}
+      POSTGRES_DB: ${POSTGRES_DB:-avdb}
     restart: unless-stopped

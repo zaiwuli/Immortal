@@ -409,7 +409,7 @@ function App() {
                       const u = URL.createObjectURL(await r.blob())
                       const a = document.createElement('a')
                       a.href = u
-                      a.download = 'immortal-articles.csv'
+                      a.download = 'sehuatang-collector-articles.csv'
                       a.click()
                       URL.revokeObjectURL(u)
                     } catch (e) {

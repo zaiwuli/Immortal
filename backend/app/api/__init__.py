@@ -34,7 +34,8 @@ async def lifespan(app):
  required={c.name for c in Target.__table__.columns}
  missing=required-{c['name'] for c in inspector.get_columns('article')}
  if missing:raise RuntimeError('Avdb article 表缺少字段：'+', '.join(sorted(missing)))
- Base.metadata.create_all(engine,tables=[t for t in Base.metadata.sorted_tables if not t.info.get('external')])
+ from app.core.schema import initialize_collector_tables
+ initialize_collector_tables(engine,Base.metadata)
  with session_scope() as db:
   config=db.get(Config,'network')
   if config:config_manager.reload(config.content)
@@ -93,8 +94,8 @@ def export(f:Filters,format:str="csv"):
    for key in ['create_time','update_time','merged_at']:
     if row.get(key):row[key]=row[key].isoformat()
   stream=io.BytesIO();pd.DataFrame(rows).to_excel(stream,index=False,engine='openpyxl')
-  return StreamingResponse(iter([stream.getvalue()]),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':'attachment; filename=immortal-articles.xlsx'})
- return StreamingResponse(iter([pd.DataFrame(rows).to_csv(index=False).encode('utf-8-sig')]),media_type='text/csv',headers={'Content-Disposition':'attachment; filename=immortal-articles.csv'})
+  return StreamingResponse(iter([stream.getvalue()]),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':'attachment; filename=sehuatang-collector-articles.xlsx'})
+ return StreamingResponse(iter([pd.DataFrame(rows).to_csv(index=False).encode('utf-8-sig')]),media_type='text/csv',headers={'Content-Disposition':'attachment; filename=sehuatang-collector-articles.csv'})
 def deletion(f,db):
  if not f.sections:raise HTTPException(422,'请至少选择一个板块')
  return db.query(Article).filter(Article.section.in_(f.sections)).order_by(Article.id).all()
