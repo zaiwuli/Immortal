@@ -57,11 +57,11 @@ def ingest(rows,kind):
   b.status='completed';b.message=json.dumps(count,ensure_ascii=False);b.finished_at=datetime.now(timezone.utc)
  return {'batch_id':bid,**count}
 
-def convert(a):
+def convert(a,clear_size=False):
  urls=links(a.magnet)+links(a.edk);urls=list(dict.fromkeys(urls))
  if not urls:raise ValueError('没有可合并的下载链接')
  for key,limit in [('title',255),('section',255),('category',255),('detail_url',255),('website',32)]:
   if len(getattr(a,key) or '')>limit:raise ValueError(f'{key} 超过 {limit} 字符')
- if a.size is not None and not -2147483648<=a.size<=2147483647:raise ValueError('大小超出目标整数范围')
- return dict(tid=a.tid,title=a.title,number=a.match_number,publish_date=a.publish_date,magnet='\n'.join(urls),preview_images=','.join(links(a.preview_images)),detail_url=a.detail_url,size=a.size,section=a.section,category=a.category,website=a.website)
+ if not clear_size and a.size is not None and not -2147483648<=a.size<=2147483647:raise ValueError('大小超出目标整数范围')
+ return dict(tid=a.tid,title=a.title,number=a.match_number,publish_date=a.publish_date,magnet='\n'.join(urls),preview_images=','.join(links(a.preview_images)),detail_url=a.detail_url,size=None if clear_size else a.size,section=a.section,category=a.category,website=a.website)
 

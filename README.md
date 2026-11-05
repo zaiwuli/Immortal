@@ -45,3 +45,10 @@ magnet 与 edk 数组去重后换行写入 Avdb magnet，图片以逗号连接�
 前端 `cd frontend && pnpm install && pnpm build`。后端安装 backend/requirements.txt，通过环境变量提供 DATABASE_URL，运行 `cd backend && python -m uvicorn app.api:app --host 127.0.0.1 --port 8000`。
 
 镜像构建：`docker build -f backend/Dockerfile -t collector .`。推送 main、v 开头标签或手动运行 Actions 均会构建镜像。测试、运行数据、CSV 原始文件和本地密钥配置不提交。
+
+## 失败与冲突处理
+
+文章管理可按同步状态筛选，勾选记录或选择筛选全部后批量处理。
+大小超出目标范围的失败项可预览确认“大小留空并同步”；仅转换结果和目标 size 写为 NULL，原始大小保留。正常 size 继续按 MB 原值传递。
+冲突项由用户确认使用备用 TID（原始 TID × 10001），预览双方信息及占用情况；已占用的不会覆盖。自动同步不主动改号。
+转换表增加 target_tid 和 size_cleared 字段，启动自动补充，无新增表。成功映射持久保存，后续同步复用。

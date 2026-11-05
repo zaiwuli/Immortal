@@ -23,4 +23,5 @@ class Target(Base):
  tid=Column(BigInteger,primary_key=True);emby=Column(Integer);number=Column(Text);title=Column(String(255),nullable=False);publish_date=Column(Date);magnet=Column(Text,nullable=False);preview_images=Column(Text);detail_url=Column(String(255));size=Column(Integer);section=Column(String(255),nullable=False);category=Column(String(255));website=Column(String(32));sub_type=Column(Text);create_time=Column(DateTime(timezone=True),server_default=func.now());update_time=Column(DateTime(timezone=True))
 class Converted(Base):
  __tablename__='immortal_article_converted'
+ target_tid=Column(BigInteger,unique=True);size_cleared=Column(Boolean,default=False)
  article_id=Column(BigInteger,primary_key=True);payload=Column(JSON);fingerprint=Column(String(64));version=Column(Integer,default=1);status=Column(Text,default='pending');error=Column(Text);synced_at=Column(DateTime(timezone=True))

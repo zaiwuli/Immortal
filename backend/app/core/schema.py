@@ -8,3 +8,6 @@ def initialize_collector_tables(engine, metadata):
         metadata.create_all(connection, tables=[
             table for table in metadata.sorted_tables if not table.info.get('external')
         ])
+        connection.execute(text('ALTER TABLE immortal_article_converted ADD COLUMN IF NOT EXISTS target_tid BIGINT'))
+        connection.execute(text('ALTER TABLE immortal_article_converted ADD COLUMN IF NOT EXISTS size_cleared BOOLEAN DEFAULT FALSE'))
+        connection.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS immortal_converted_target_tid_unique ON immortal_article_converted(target_tid)'))

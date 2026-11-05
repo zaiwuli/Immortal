@@ -73,6 +73,36 @@ def merge(f:Filters):
  return sync.start(f.model_dump())
 @app.get('/api/sync/status')
 def sync_status():return sync.state()
+class Resolution(BaseModel):
+ filters:Filters
+ operation:str
+ confirmation:str|None=None
+def resolution_preview(body,db):
+ if body.operation not in ('clear_size','resolve_conflict'):raise HTTPException(422,'未知处理方式')
+ rows=service.filtered(db,body.filters.model_dump()).order_by(Article.id).all()
+ items=[]
+ for a in rows:
+  if body.operation=='clear_size' and (a.merge_status!='failed' or a.error!='大小超出目标整数范围'):continue
+  if body.operation=='resolve_conflict' and a.merge_status!='conflict':continue
+  tid=a.tid*10001 if body.operation=='resolve_conflict' else a.tid
+  target=db.get(Target,tid)
+  mapping=db.query(Converted).filter(Converted.target_tid==tid,Converted.article_id!=a.id).first()
+  occupied=bool(target or mapping) if body.operation=='resolve_conflict' else False
+  original=db.get(Target,a.tid)
+  items.append(dict(id=a.id,tid=a.tid,title=a.title,size=a.size,target_tid=tid,available=not occupied and 0<tid<=9007199254740991,existing_title=original.title if original else None,existing_website=original.website if original else None))
+ token=hashlib.sha256(json.dumps([body.operation,items],sort_keys=True,default=str).encode()).hexdigest()
+ return dict(items=items,confirmation=token)
+@app.post('/api/resolve/preview')
+def resolve_preview(body:Resolution):
+ with session_scope() as db:return resolution_preview(body,db)
+@app.post('/api/resolve')
+def resolve(body:Resolution):
+ if runtime.active:raise HTTPException(409,'采集中请等待结束')
+ with session_scope() as db:preview=resolution_preview(body,db)
+ if body.confirmation!=preview['confirmation']:raise HTTPException(409,'数据已变化，请重新预览确认')
+ ids=[item['id'] for item in preview['items'] if item['available']]
+ if not ids:raise HTTPException(422,'没有可以处理的记录')
+ return sync.start({'ids':ids},body.operation)
 @app.post('/api/import/file')
 async def upload(file:UploadFile=File(...)):
  data=await file.read(50*1024*1024+1)

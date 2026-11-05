@@ -92,6 +92,17 @@ function App() {
   const [taskTab, setTaskTab] = useState('采集配置')
   const [settingsTab, setSettingsTab] = useState('网络')
   const [logTab, setLogTab] = useState('批次记录')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [allFiltered, setAllFiltered] = useState(false)
+  const [resolution, setResolution] = useState<{operation: string; filters: unknown; confirmation: string; items: {id: number; tid: number; title: string; size: number | null; target_tid: number; available: boolean; existing_title: string | null; existing_website: string | null}[]} | null>(null)
+  const prepareResolution = async (operation: string) => {
+    try {
+      if (!allFiltered && !selected.length) throw Error("请先勾选文章，或选择筛选全部")
+      const scope = filters()
+      const result = await api('/resolve/preview', {operation, filters: scope})
+      setResolution({...result, operation, filters: scope})
+    } catch (e) { setError((e as Error).message) }
+  }
   const [syncProgress, setSyncProgress] = useState<{running: boolean; processed: number; total: number; stats: Record<string, number>; error: string | null} | null>(null)
   const [runtimeLogs, setRuntimeLogs] = useState('')
   const [autoLogs, setAutoLogs] = useState(true)
@@ -155,15 +166,17 @@ function App() {
       sections: string[]
     } | null>(null)
   const filters = () => ({
+    merge_status: statusFilter || null,
     section: section || null,
     keyword: keyword || null,
-    ids: selected.length ? selected : null,
+    ids: !allFiltered && selected.length ? selected : null,
   })
   const cleanFilters = () => ({ sections: cleanSections })
   const refresh = async () => {
     const [o, a, t, n] = await Promise.all([
       api('/overview'),
       api('/articles/search?page=' + num, {
+        merge_status: statusFilter || null,
         section: section || null,
         keyword: keyword || null,
       }),
@@ -179,7 +192,7 @@ function App() {
   }
   useEffect(() => {
     refresh().catch((e) => setError(e.message))
-  }, [num, section])
+  }, [num, section, statusFilter])
   useEffect(() => {
     const timer = setInterval(() => {
       api('/sync/status').then(setSyncProgress).catch(() => {})
@@ -371,6 +384,7 @@ function App() {
                   value={section}
                   onChange={(e) => {
                     setSection(e.target.value)
+                    setAllFiltered(false)
                     setSelected([])
                     setNum(1)
                   }}
@@ -381,6 +395,10 @@ function App() {
                   ).map((s) => (
                     <option key={s}>{s}</option>
                   ))}
+                </select>
+                <select value={statusFilter} onChange={(e) => {setStatusFilter(e.target.value);setSelected([]);setAllFiltered(false);setNum(1)}}>
+                  <option value="">全部状态</option>
+                  {Object.entries({pending:'待合并',inserted:'已新增',existing:'已存在',failed:'失败',conflict:'冲突'}).map(([value,label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
                 <button
                   onClick={() => {
@@ -412,6 +430,9 @@ function App() {
                 >
                   {syncProgress?.running ? '正在同步…' : '处理并同步'}
                 </button>
+                <label><input type="checkbox" checked={allFiltered} onChange={(e) => {setAllFiltered(e.target.checked);setSelected([])}} />选择筛选全部（{total} 条）</label>
+                {statusFilter === 'failed' && <button disabled={busy || syncProgress?.running} onClick={() => prepareResolution('clear_size')}>大小留空并同步</button>}
+                {statusFilter === 'conflict' && <button disabled={busy || syncProgress?.running} onClick={() => prepareResolution('resolve_conflict')}>使用备用 TID 同步</button>}
                 {syncProgress && (syncProgress.running || syncProgress.total > 0 || syncProgress.error) && (
                   <span role="status">
                     {syncProgress.running ? '同步中' : '同步结束'}：{syncProgress.processed}/{syncProgress.total}
@@ -858,6 +879,19 @@ function App() {
             </div>
             <pre>{output || '请在批次记录中选择一条日志。'}</pre>
           </section>
+        )}
+        {resolution && (
+          <div className="modal" onClick={() => setResolution(null)}>
+            <section className="panel" style={{maxWidth:'1000px',maxHeight:'85vh',overflow:'auto'}} onClick={(e) => e.stopPropagation()}>
+              <h2>{resolution.operation === 'clear_size' ? '确认大小留空并同步' : '确认使用备用 TID 同步'}</h2>
+              <p>可处理 {resolution.items.filter((item) => item.available).length} 条，共 {resolution.items.length} 条。原始数据保留，Avdb 已有文章不覆盖。</p>
+              <p>{resolution.operation === 'clear_size' ? '仅处理大小超出范围的失败项，确认后目标大小为 NULL。' : '备用 TID = 原始 TID × 10000 ＋原始 TID；已占用的跳过。'}</p>
+              <table><thead><tr><th>原始 TID / 标题</th><th>原始大小 / 备用 TID</th><th>检查结果</th></tr></thead><tbody>
+                {resolution.items.map((item) => <tr key={item.id}><td>{item.tid} · {item.title}<p>{item.existing_website} {item.existing_title}</p></td><td>{resolution.operation === 'clear_size' ? String(item.size ?? '空') : item.target_tid}</td><td>{item.available ? '可处理' : '已占用或超出范围'}</td></tr>)}
+              </tbody></table>
+              <div className="toolbar"><button onClick={() => setResolution(null)}>取消</button><button disabled={busy || !resolution.items.some((item) => item.available)} onClick={() => action(async () => {const result=await api('/resolve', resolution);setResolution(null);return result})}>确认处理可用记录</button></div>
+            </section>
+          </div>
         )}
         {cleanOpen && (
           <div className="modal" onClick={() => setCleanOpen(false)}>
