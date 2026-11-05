@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime,timezone
 from loguru import logger
 from app.core.database import session_scope
-from app.models import Article,Batch,BatchItem,TaskLog
+from app.models import Article,Batch,TaskLog
 sync_pool=ThreadPoolExecutor(max_workers=1)
 pool=ThreadPoolExecutor(max_workers=1)
 stop=threading.Event();local=threading.local();active=None;lock=threading.Lock()
@@ -16,7 +16,7 @@ def record_items(tids):
  with session_scope() as db:
   for article in db.query(Article).filter(Article.website=='sehuatang',Article.tid.in_(tids)).all():
    ids.append(article.id)
-   db.add(BatchItem(batch_id=current_batch(),article_id=article.id,status='captured'))
+
  from app.collector.sync import settings,process
  if ids and settings()['mode']=='realtime':sync_pool.submit(process,{'ids':ids})
 def log_sink(message):

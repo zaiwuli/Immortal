@@ -1,13 +1,11 @@
 services:
   collector:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    image: ghcr.io/zaiwuli/immortal:latest
     ports:
       - "${WEB_PORT:-8000}:8000"
     volumes:
       - ./data:/data
     environment:
       TZ: Asia/Shanghai
-      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to your Avdb database}
     restart: unless-stopped

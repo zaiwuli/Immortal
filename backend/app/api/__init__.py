@@ -12,7 +12,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import text,func
 from app.core.database import Base,engine,session_scope
 from app.core.config import config_manager
-from app.models import Article,Task,Batch,BatchItem,TaskLog,Config,Converted
+from app.models import Article,Task,Batch,TaskLog,Config,Converted,Target
 from app.collector import sync
 from app.collector import service,runtime
 from app.scheduler.sht_sheduler import section_map
@@ -27,7 +27,14 @@ def schedule():
    if t.cron:scheduler.add_job(runtime.launch,CronTrigger.from_crontab(t.cron),args=[t.params],id=str(t.id),max_instances=1)
 @asynccontextmanager
 async def lifespan(app):
- Base.metadata.create_all(engine)
+ from sqlalchemy import inspect
+ inspector=inspect(engine)
+ if not inspector.has_table('article'):
+  raise RuntimeError('未找到 Avdb article 表，请连接已初始化的 Avdb 数据库')
+ required={c.name for c in Target.__table__.columns}
+ missing=required-{c['name'] for c in inspector.get_columns('article')}
+ if missing:raise RuntimeError('Avdb article 表缺少字段：'+', '.join(sorted(missing)))
+ Base.metadata.create_all(engine,tables=[t for t in Base.metadata.sorted_tables if not t.info.get('external')])
  with session_scope() as db:
   config=db.get(Config,'network')
   if config:config_manager.reload(config.content)
@@ -146,7 +153,7 @@ def logs(bid:int):
  with session_scope() as db:return [service.serialize(l) for l in db.query(TaskLog).filter_by(batch_id=bid).order_by(TaskLog.id.desc()).limit(300)]
 @app.get('/api/settings')
 def settings():
- cfg=config_manager.get();return {'PROXY':cfg.PROXY or '','FLARE_SOLVERR_URL':cfg.FLARE_SOLVERR_URL or '','database':engine.url.render_as_string(hide_password=True),'target':'immortal_article_target（测试表）'}
+ cfg=config_manager.get();return {'PROXY':cfg.PROXY or '','FLARE_SOLVERR_URL':cfg.FLARE_SOLVERR_URL or '','database':engine.url.render_as_string(hide_password=True),'target':'article（Avdb 主表）'}
 class Network(BaseModel):
  PROXY:str='';FLARE_SOLVERR_URL:str=''
 @app.post('/api/settings')
@@ -160,7 +167,7 @@ def settings_save(n:Network):
 @app.get('/api/health')
 def health():
  with engine.connect() as conn:conn.execute(text('select 1'))
- return {'database':True,'target':'immortal_article_target','authentication':'none'}
+ return {'database':True,'target':'article','authentication':'none'}
 dist=Path('/frontend/dist') if os.environ.get('DOCKER_ENV') else Path(__file__).resolve().parents[2]/'frontend/dist'
 
 

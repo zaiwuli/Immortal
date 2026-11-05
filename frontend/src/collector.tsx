@@ -389,7 +389,7 @@ function App() {
                   onClick={() => {
                     if (
                       confirm(
-                        `合并${selected.length ? '选中 ' + selected.length + ' 条' : '当前筛选范围内的全部'}资源到测试表？已有记录不会覆盖。`,
+                        `合并${selected.length ? '选中 ' + selected.length + ' 条' : '当前筛选范围内的全部'}资源到 Avdb 主表？已有记录不会覆盖。`,
                       )
                     )
                       action(() => api('/merge', filters()))
@@ -678,7 +678,7 @@ function App() {
           <section className="panel">
             <h2>运行设置</h2>
             <p className="connection-status">
-              数据库已由部署环境配置 · 当前目标：测试展示表
+              数据库由部署环境配置 · 同步目标：Avdb article
             </p>{' '}
             <label>
               代理地址

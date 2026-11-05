@@ -11,9 +11,6 @@ class Task(Base):
 class Batch(Base):
  __tablename__='immortal_batch'
  id=Column(BigInteger,primary_key=True);kind=Column(Text);status=Column(Text,default='running');message=Column(Text);create_time=Column(DateTime(timezone=True),server_default=func.now());finished_at=Column(DateTime(timezone=True))
-class BatchItem(Base):
- __tablename__='immortal_batch_item'
- id=Column(BigInteger,primary_key=True);batch_id=Column(BigInteger,index=True);article_id=Column(BigInteger,index=True);status=Column(Text);message=Column(Text);target_created=Column(Boolean,default=False)
 class TaskLog(Base):
  __tablename__='immortal_task_log'
  id=Column(BigInteger,primary_key=True);batch_id=Column(BigInteger,index=True);message=Column(Text);create_time=Column(DateTime(timezone=True),server_default=func.now())
@@ -21,7 +18,8 @@ class Config(Base):
  __tablename__='immortal_config'
  key=Column(String(100),primary_key=True);content=Column(JSON)
 class Target(Base):
- __tablename__='immortal_article_target'
+ __tablename__='article'
+ __table_args__={'info':{'external':True}}
  tid=Column(BigInteger,primary_key=True);emby=Column(Integer);number=Column(Text);title=Column(String(255),nullable=False);publish_date=Column(Date);magnet=Column(Text,nullable=False);preview_images=Column(Text);detail_url=Column(String(255));size=Column(Integer);section=Column(String(255),nullable=False);category=Column(String(255));website=Column(String(32));sub_type=Column(Text);create_time=Column(DateTime(timezone=True),server_default=func.now());update_time=Column(DateTime(timezone=True))
 class Converted(Base):
  __tablename__='immortal_article_converted'
