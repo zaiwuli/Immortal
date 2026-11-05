@@ -40,7 +40,7 @@ class SHT:
             "https": config_manager.get().PROXY
         }
 
-        logger.info(f"开始请求 (mode={self.mode}): {url}")
+        logger.debug(f"开始请求 (mode={self.mode}): {url}")
 
         if self.mode == "flaresolverr":
             # 直接走 FlareSolver
@@ -85,7 +85,7 @@ class SHT:
         if "98堂" not in page_title:
             logger.error(f"页面标题不匹配，获取失败，title='{page_title}': {url}")
             return None
-        logger.success(f"页面获取成功: {url}")
+        logger.debug(f"页面获取成功: {url}")
         return html
 
     def bypass_cf(self, url, _retried=False):
@@ -343,7 +343,7 @@ class SHT:
                         "detail_url": url
                     }
             except Exception:
-                logger.exception("")
+                logger.exception("解析文章或附件失败")
         return None
 
     def parse_txt_get_ed2k(self, refer, txt_url):
@@ -367,7 +367,7 @@ class SHT:
             )
             return ed2k_list
         except Exception:
-            logger.exception("")
+            logger.exception("解析文章或附件失败")
 
     def parse_torrent_get_magnet(self, refer, torrent_source):
         logger.info(f"获取到磁链文件,开始转换为磁力链接:{torrent_source}")
@@ -415,7 +415,7 @@ class SHT:
             magnet_link = f"magnet:?xt=urn:btih:{info_hash_hex}&dn={encoded_name}"
             return magnet_link
         except Exception:
-            logger.exception("")
+            logger.exception("解析文章或附件失败")
             return None
 
     def download_binary(self, url, refer):

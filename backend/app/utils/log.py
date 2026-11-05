@@ -1,32 +1,51 @@
+import logging
+import os
 import sys
 
 from loguru import logger as uru_logger
-import os
-
 from app.core.config import data_path
 
 log_dir = os.path.join(data_path, 'logs')
+ICONS = {'DEBUG': '🔍', 'INFO': 'ℹ️', 'SUCCESS': '✅',
+         'WARNING': '⚠️', 'ERROR': '❌', 'CRITICAL': '🚨'}
 
-# 閰嶇疆鏃ュ織锛氭寜澶╁綊妗ｅ埌鎸囧畾鐩綍
+
+def console_format(record):
+    icon = ICONS.get(record['level'].name, 'ℹ️')
+    record['extra']['icon'] = icon
+    record['extra']['summary'] = record['message'].strip().replace('\r', '').replace('\n', ' · ')
+    exception = record['exception']
+    if exception:
+        record['extra']['summary'] += f'（{exception.type.__name__}: {exception.value}）'
+    return '{time:YYYY-MM-DD HH:mm:ss.SSS} | {extra[icon]} {level: <8}\n{extra[icon]} {extra[summary]}\n'
+
+
+class InterceptHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            level = uru_logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        uru_logger.opt(exception=record.exc_info).log(level, record.getMessage())
+
+
 def setup_loguru_logger():
     os.makedirs(log_dir, exist_ok=True)
-
     uru_logger.remove()
-
     uru_logger.add(
-        f"{log_dir}/app.log",
-        rotation="00:00",  # 姣忓ぉ鍗堝鍒囧壊
-        retention=7,  # 淇濈暀7澶?
-        compression="zip",  # 鍘嬬缉澶囦唤
-        encoding="utf-8",
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+        f'{log_dir}/app.log', rotation='00:00', retention='7 days',
+        compression='zip', encoding='utf-8', level='DEBUG',
+        backtrace=False, diagnose=False,
+        format='{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}',
     )
-    # 娣诲姞鎺у埗鍙拌緭鍑?
-    uru_logger.add(
-        sink=sys.stdout,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-        colorize=True
-    )
+    uru_logger.add(sys.stdout, format=console_format, level='INFO',
+                   colorize=False, backtrace=False, diagnose=False)
+    logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO, force=True)
+    for name in ('uvicorn', 'uvicorn.error', 'uvicorn.access', 'apscheduler'):
+        log = logging.getLogger(name)
+        log.handlers.clear()
+        log.propagate = True
+    logging.getLogger('apscheduler').setLevel(logging.WARNING)
     return uru_logger
 
 

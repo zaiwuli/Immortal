@@ -58,7 +58,7 @@ def sync_article_common(
             try:
                 tid_list = get_tid_list_func(section_id, page)
                 if tid_list:
-                    logger.info(
+                    logger.debug(
                         f"[{site_name}][{section}] 抓取到TID列表: {tid_list}"
                     )
                     break
@@ -87,7 +87,7 @@ def sync_article_common(
                 ).scalars().all()
             )
         un_existing_ids = list(set(tid_list) - existing_article_tids)
-        logger.info(f"[{site_name}][{section}] 尚未抓取的TID列表: {un_existing_ids}")
+        logger.debug(f"[{site_name}][{section}] 尚未抓取的TID列表: {un_existing_ids}")
 
         for tid in tid_list:
             check_stop()
