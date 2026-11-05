@@ -70,7 +70,9 @@ def preview(f:Filters):
 @app.post('/api/merge')
 def merge(f:Filters):
  if runtime.active:raise HTTPException(409,'采集中请等待结束')
- return sync.process(f.model_dump())
+ return sync.start(f.model_dump())
+@app.get('/api/sync/status')
+def sync_status():return sync.state()
 @app.post('/api/import/file')
 async def upload(file:UploadFile=File(...)):
  data=await file.read(50*1024*1024+1)

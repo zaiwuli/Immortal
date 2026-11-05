@@ -92,6 +92,7 @@ function App() {
   const [taskTab, setTaskTab] = useState('采集配置')
   const [settingsTab, setSettingsTab] = useState('网络')
   const [logTab, setLogTab] = useState('批次记录')
+  const [syncProgress, setSyncProgress] = useState<{running: boolean; processed: number; total: number; stats: Record<string, number>; error: string | null} | null>(null)
   const [runtimeLogs, setRuntimeLogs] = useState('')
   const [autoLogs, setAutoLogs] = useState(true)
   const loadRuntimeLogs = async () => {
@@ -181,6 +182,7 @@ function App() {
   }, [num, section])
   useEffect(() => {
     const timer = setInterval(() => {
+      api('/sync/status').then(setSyncProgress).catch(() => {})
       api('/overview')
         .then(setOverview)
         .catch(() => {})
@@ -401,7 +403,7 @@ function App() {
                 </button>
                 <button
                   className="primary"
-                  disabled={busy}
+                  disabled={busy || syncProgress?.running}
                   onClick={() => {
                     if (
                       confirm(
@@ -411,8 +413,15 @@ function App() {
                       action(() => api('/merge', filters()))
                   }}
                 >
-                  处理并同步
+                  {syncProgress?.running ? '正在同步…' : '处理并同步'}
                 </button>
+                {syncProgress && (syncProgress.running || syncProgress.total > 0 || syncProgress.error) && (
+                  <span role="status">
+                    {syncProgress.running ? '同步中' : '同步结束'}：{syncProgress.processed}/{syncProgress.total}
+                    {' · '}{chineseLog(syncProgress.stats)}
+                    {syncProgress.error && ` · ${syncProgress.error}`}
+                  </span>
+                )}
                 <button
                   onClick={async () => {
                     try {
