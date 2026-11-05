@@ -377,10 +377,7 @@ function App() {
                 >
                   <option value="">全部板块</option>
                   {Array.from(
-                    new Set([
-                      ...Object.values(overview.sections),
-                      ...overview.groups.map((g) => g.section),
-                    ]),
+                    new Set(overview.groups.filter((g) => g.count > 0).map((g) => g.section)),
                   ).map((s) => (
                     <option key={s}>{s}</option>
                   ))}
