@@ -2,7 +2,8 @@
 import hashlib
 import json
 from app.core.database import session_scope
-from app.models import Config, Token, Task
+from app.models import Config, Token
+from app.models.task import Task
 
 
 def migrate_access_tokens():
