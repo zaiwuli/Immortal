@@ -7,6 +7,26 @@ from app.models import Article,Batch,TaskLog
 sync_pool=ThreadPoolExecutor(max_workers=1)
 pool=ThreadPoolExecutor(max_workers=1)
 stop=threading.Event();local=threading.local();active=None;lock=threading.Lock()
+sync_pending=0;phase='idle'
+def sync_batch(filters,bid):
+ global sync_pending
+ local.batch_id=bid
+ try:
+  from app.collector.sync import process
+  return process(filters,wait=True)
+ except Exception:
+  logger.exception('实时同步异常，待同步文章将由收尾或兜底任务补处理')
+  raise
+ finally:
+  local.batch_id=None
+  with lock:sync_pending-=1
+def enqueue_sync(filters,bid):
+ global sync_pending
+ with lock:sync_pending+=1
+ try:return sync_pool.submit(sync_batch,filters,bid)
+ except Exception:
+  with lock:sync_pending-=1
+  raise
 class Stopped(BaseException):pass
 def check_stop():
  if stop.is_set():raise Stopped()
@@ -17,8 +37,8 @@ def record_items(tids):
   for article in db.query(Article).filter(Article.website=='sehuatang',Article.tid.in_(tids)).all():
    ids.append(article.id)
 
- from app.collector.sync import settings,process
- if ids and settings()['mode']=='realtime':sync_pool.submit(process,{'ids':ids})
+ from app.collector.sync import settings
+ if ids and settings()['mode']=='realtime':enqueue_sync({'ids':ids,'merge_status':'pending'},current_batch())
 def log_sink(message):
  batch=current_batch()
  if getattr(local,'logging',False):return
@@ -30,21 +50,30 @@ def log_sink(message):
   finally:local.logging=False
 logger.add(log_sink)
 def launch(params):
- global active
+ global active,phase
  with lock:
   if active is not None:raise ValueError('已有采集任务运行，请先停止或等待完成')
   with session_scope() as db:
    b=Batch(kind='crawl');db.add(b);db.flush();bid=b.id
-  active=bid;stop.clear();pool.submit(run,bid,params);return bid
+  active=bid;phase='crawling';stop.clear();pool.submit(run,bid,params);return bid
 def run(bid,params):
- global active
+ global active,phase
  local.batch_id=bid;status='completed'
  try:
   from app.scheduler.sht_sheduler import sync_sht
   result=sync_sht(**params)
   check_stop()
   from app.collector.sync import settings
-  merged='由同步调度器按设置处理：'+settings()['mode']
+  if settings()['mode']=='realtime':
+   with lock:phase='syncing'
+   logger.info('采集完成，等待实时同步队列并检查本批次待同步文章')
+   enqueue_sync({'batch_id':bid,'merge_status':'pending'},bid).result()
+   with session_scope() as db:
+    remaining=db.query(Article).filter_by(batch_id=bid,merge_status='pending').count()
+   if remaining:raise RuntimeError(f'本批次仍有 {remaining} 条待同步，请查看日志并重试')
+   merged='本批次同步结束，失败及冲突项保留待手动处理'
+   logger.success(merged)
+  else:merged='等待定时或兜底同步'
   message=f'采集结果：{result}；合并：{merged}'
  except Stopped:status='stopped';message='用户停止，已保存的数据留在暂存表，未自动合并'
  except Exception as e:status='failed';message=f'{type(e).__name__}: {e}'
@@ -52,4 +81,4 @@ def run(bid,params):
   with session_scope() as db:
    b=db.get(Batch,bid);b.status=status;b.message=message;b.finished_at=datetime.now(timezone.utc)
   local.batch_id=None
-  with lock:active=None
+  with lock:active=None;phase='idle'

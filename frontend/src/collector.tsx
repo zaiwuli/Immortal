@@ -80,6 +80,8 @@ type Row = {
   batch_id: number
 }
 type Overview = {
+  phase?: string
+  sync_queued?: number
   total: number
   pending: number
   active: number | null
@@ -108,7 +110,7 @@ function App() {
   const [autoLogs, setAutoLogs] = useState(true)
   const loadRuntimeLogs = async () => {
     const entries: { time: string; level: string; icon: string; message: string }[] = await api('/runtime-logs')
-    setRuntimeLogs(entries.map((entry) =>
+    setRuntimeLogs([...entries].reverse().map((entry) =>
       `${new Date(entry.time).toLocaleString()} | ${entry.icon} ${entry.level}\n${entry.icon} ${entry.message}`,
     ).join('\n'))
   }
@@ -329,8 +331,12 @@ function App() {
             <div>
               <small>采集状态</small>
               <strong>
-                {overview.active ? '运行中 #' + overview.active : '空闲'}
+                {overview.active ? (overview.phase === 'syncing' ? '采集完成 · 同步收尾中' : '采集中 #' + overview.active) : '空闲'}
               </strong>
+            </div>
+            <div>
+              <small>同步状态</small>
+              <strong>{overview.sync_queued ? `同步排队 ${overview.sync_queued} 批` : syncProgress?.running ? '同步中' : '空闲'}</strong>
             </div>
           </div>
         )}

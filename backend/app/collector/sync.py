@@ -22,8 +22,8 @@ def start(filters=None,operation=None):
   progress.update(running=True,processed=0,total=0,stats={},error=None)
  executor.submit(process,filters,True,operation)
  return {"started":True,"message":"已开始后台同步"}
-def process(filters=None,reserved=False,operation=None):
- if not lock.acquire(False):
+def process(filters=None,reserved=False,operation=None,wait=False):
+ if not lock.acquire(blocking=wait):
   if reserved:
    with progress_lock:progress['running']=False
   return {'busy':True}

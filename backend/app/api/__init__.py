@@ -54,7 +54,7 @@ class Plan(BaseModel):
 @app.get('/api/overview')
 def overview():
  with session_scope() as db:
-  return dict(total=db.query(Article).count(),pending=db.query(Article).filter(Article.merge_status=='pending').count(),active=runtime.active,sections=section_map,groups=[dict(section=s,source=o,count=c) for s,o,c in db.query(Article.section,Article.source,func.count()).group_by(Article.section,Article.source)],batches=[service.serialize(b) for b in db.query(Batch).order_by(Batch.id.desc()).limit(30)])
+  return dict(total=db.query(Article).count(),pending=db.query(Article).filter(Article.merge_status=='pending').count(),active=runtime.active,phase=runtime.phase,sync_queued=runtime.sync_pending,sections=section_map,groups=[dict(section=s,source=o,count=c) for s,o,c in db.query(Article.section,Article.source,func.count()).group_by(Article.section,Article.source)],batches=[service.serialize(b) for b in db.query(Batch).order_by(Batch.id.desc()).limit(30)])
 @app.post('/api/articles/search')
 def articles(f:Filters,page:int=1):
  with session_scope() as db:
