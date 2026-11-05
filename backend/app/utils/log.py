@@ -1,11 +1,30 @@
 import logging
 import os
 import sys
+from collections import deque
+from threading import Lock
 
 from loguru import logger as uru_logger
 from app.core.config import data_path
 
 log_dir = os.path.join(data_path, 'logs')
+recent_logs = deque(maxlen=1000)
+recent_lock = Lock()
+
+
+def capture_console(message):
+    record = message.record
+    with recent_lock:
+        recent_logs.append({'time': record['time'].isoformat(),
+                            'level': record['level'].name,
+                            'icon': record['extra']['icon'],
+                            'message': record['extra']['summary']})
+
+
+def read_console_logs():
+    with recent_lock:
+        return list(recent_logs)
+
 ICONS = {'DEBUG': '🔍', 'INFO': 'ℹ️', 'SUCCESS': '✅',
          'WARNING': '⚠️', 'ERROR': '❌', 'CRITICAL': '🚨'}
 
@@ -40,6 +59,8 @@ def setup_loguru_logger():
     )
     uru_logger.add(sys.stdout, format=console_format, level='INFO',
                    colorize=False, backtrace=False, diagnose=False)
+    uru_logger.add(capture_console, format=console_format, level='INFO',
+                   backtrace=False, diagnose=False)
     logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO, force=True)
     for name in ('uvicorn', 'uvicorn.error', 'uvicorn.access', 'apscheduler'):
         log = logging.getLogger(name)

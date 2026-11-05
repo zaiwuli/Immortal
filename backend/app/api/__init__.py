@@ -152,6 +152,10 @@ def stop():runtime.stop.set();return {'message':'将在当前请求或步骤结�
 @app.get('/api/logs/{bid}')
 def logs(bid:int):
  with session_scope() as db:return [service.serialize(l) for l in db.query(TaskLog).filter_by(batch_id=bid).order_by(TaskLog.id.desc()).limit(300)]
+@app.get('/api/runtime-logs')
+def runtime_logs():
+ from app.utils.log import read_console_logs
+ return read_console_logs()
 @app.get('/api/settings')
 def settings():
  cfg=config_manager.get();return {'PROXY':cfg.PROXY or '','FLARE_SOLVERR_URL':cfg.FLARE_SOLVERR_URL or '','database':engine.url.render_as_string(hide_password=True),'target':'article（Avdb 主表）'}

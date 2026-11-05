@@ -92,6 +92,14 @@ function App() {
   const [taskTab, setTaskTab] = useState('采集配置')
   const [settingsTab, setSettingsTab] = useState('网络')
   const [logTab, setLogTab] = useState('批次记录')
+  const [runtimeLogs, setRuntimeLogs] = useState('')
+  const [autoLogs, setAutoLogs] = useState(true)
+  const loadRuntimeLogs = async () => {
+    const entries: { time: string; level: string; icon: string; message: string }[] = await api('/runtime-logs')
+    setRuntimeLogs(entries.map((entry) =>
+      `${new Date(entry.time).toLocaleString()} | ${entry.icon} ${entry.level}\n${entry.icon} ${entry.message}`,
+    ).join('\n'))
+  }
   const [editing, setEditing] = useState<number | null>(null)
   const [page, setPage] = useState('文章管理'),
     [overview, setOverview] = useState<Overview>({
@@ -192,6 +200,14 @@ function App() {
       setBusy(false)
     }
   }
+  useEffect(() => {
+    if (page !== '日志' || logTab !== '运行日志') return
+    let disposed = false
+    const load = () => loadRuntimeLogs().catch((e) => { if (!disposed) setError(e.message) })
+    load()
+    const timer = autoLogs ? setInterval(load, 3000) : undefined
+    return () => { disposed = true; clearInterval(timer) }
+  }, [page, logTab, autoLogs])
   const plan = () => ({
     name,
     section_id_list: boards,
@@ -274,7 +290,7 @@ function App() {
         )}
         {page === '日志' && (
           <div className="subnav">
-            {['批次记录', '详细日志'].map((t) => (
+            {['运行日志', '批次记录', '详细日志'].map((t) => (
               <button
                 key={t}
                 className={logTab === t ? 'selected' : ''}
@@ -780,7 +796,7 @@ function App() {
         )}
         {page === '日志' && logTab === '批次记录' && (
           <section className="panel">
-            <h2>运行日志</h2>
+            <h2>批次记录</h2>
             {overview.batches.map((b) => (
               <div className="list-row" key={b.id}>
                 <div>
@@ -815,6 +831,17 @@ function App() {
                 </button>
               </div>
             ))}
+          </section>
+        )}
+        {page === '日志' && logTab === '运行日志' && (
+          <section className="panel">
+            <div className="toolbar">
+              <h2>运行日志</h2>
+              <label><input type="checkbox" checked={autoLogs} onChange={(e) => setAutoLogs(e.target.checked)} />自动刷新</label>
+              <button onClick={() => loadRuntimeLogs().catch((e) => setError(e.message))}>刷新</button>
+            </div>
+            <p>最近 1000 条 · 每 3 秒刷新 · 服务重启后重新记录</p>
+            <pre style={{ maxHeight: '65vh', overflow: 'auto' }}>{runtimeLogs || '暂无运行日志'}</pre>
           </section>
         )}
         {(page === '日志' ? logTab === '详细日志' : !!output) && (
