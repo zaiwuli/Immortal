@@ -1,6 +1,6 @@
 services:
   collector:
-    image: ghcr.io/zaiwuli/immortal:latest
+    image: ghcr.io/zaiwuli/sehuatang-collector:latest
     ports:
       - "${WEB_PORT:-8000}:8000"
     volumes:

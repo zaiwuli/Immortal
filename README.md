@@ -4,7 +4,7 @@
 
 ## Docker 部署
 
-镜像：`ghcr.io/zaiwuli/immortal:latest`，GitHub Actions 构建 linux/amd64 与 linux/arm64。
+镜像：`ghcr.io/zaiwuli/sehuatang-collector:latest`，GitHub Actions 构建 linux/amd64 与 linux/arm64。
 
 复制 `.env.example` 为 `.env`，将 DATABASE_URL 指向已经初始化的 Avdb PostgreSQL 数据库，然后执行：
 

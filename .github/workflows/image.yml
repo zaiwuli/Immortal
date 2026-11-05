@@ -22,7 +22,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/zaiwuli/sehuatang-collector
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
