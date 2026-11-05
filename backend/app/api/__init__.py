@@ -1,309 +1,184 @@
-import importlib
-import json
-import os
-import traceback
-from collections import Counter
+import io,json,hashlib,os
 from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, Request
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import FileResponse, JSONResponse
-from starlette.staticfiles import StaticFiles
-
-import app.models  # noqa: F401
-from app.core.config import config_manager, root_path
-from app.core.database import Base, engine, session_scope
-from app.enums import DownloadClientEnum, PusherEnum, SystemConfigEnum
-from app.migration.schema_sync import sync_schema
-from app.migration.setup import upgrade
-from app.models import Config
-from app.utils.log import logger
-
-
-ROUTER_SPECS = [
-    ('app.api.v1.tools', '/api/v1/tools', ['tools']),
-    ('app.api.v1.article', '/api/v1/articles', ['article']),
-    ('app.api.v1.user', '/api/v1/users', ['user']),
-    ('app.api.v1.config', '/api/v1/config', ['config']),
-    ('app.api.v1.task', '/api/v1/tasks', ['task']),
-    ('app.api.v1.download_log', '/api/v1/download-log', ['download-log']),
-    ('app.api.v1.rule', '/api/v1/rules', ['rule']),
-    ('app.api.v1.token', '/api/v1/tokens', ['token']),
-    ('app.api.v1.img_proxy', '/api/v1/img-proxy', ['img-proxy']),
-    ('app.api.v1.log', '/api/v1/logs', ['logs']),
-    ('app.api.v1.rank', '/api/v1/rank', ['rank']),
-    ('app.api.v1.movie', '/api/v1/movies', ['movies']),
-    ('app.api.v1.cast', '/api/v1/casts', ['casts']),
-    ('app.api.v1.filter', '/api/v1/filters', ['filters']),
-    ('app.api.v1.priority', '/api/v1/priorities', ['priorities']),
-    ('app.api.v1.subscribe', '/api/v1/subscribes', ['subscribes']),
-]
-
-
-DOWNLOAD_CLIENT_SPECS = {
-    DownloadClientEnum.TOOLS115.value: ('app.modules.downloadclient.tools115', 'Tools115'),
-    DownloadClientEnum.QBITTORRENT.value: ('app.modules.downloadclient.qbittorrent', 'QBitTorrentClient'),
-    DownloadClientEnum.TRANSMISSION.value: ('app.modules.downloadclient.transmission', 'TransmissionClient'),
-    DownloadClientEnum.THUNDER.value: ('app.modules.downloadclient.thunder', 'Thunder'),
-    DownloadClientEnum.CLOUDDRIVE.value: ('app.modules.downloadclient.cloudnas.cloudnas', 'CloudNas'),
-}
-
-
-PUSHER_SPECS = {
-    PusherEnum.WECHAT.value: ('app.modules.notification.wechat', 'WeChatNotifier'),
-    PusherEnum.TELEGRAM.value: ('app.modules.notification.telegram', 'TelegramNotifier'),
-    PusherEnum.DISCORD.value: ('app.modules.notification.discord', 'DiscordNotifier'),
-}
-
-
-DIST_DIR = os.path.join(root_path, 'frontend', 'dist')
-
-
-def _safe_import(module_path: str):
-    try:
-        return importlib.import_module(module_path)
-    except Exception:
-        logger.exception(f'模块加载失败，已跳过 | module={module_path}')
-        return None
-
-
-def _safe_call(label: str, func, *args, **kwargs):
-    try:
-        return func(*args, **kwargs)
-    except Exception:
-        logger.exception(f'启动步骤执行失败，已跳过 | step={label}')
-        return None
-
-
-def ensure_database_schema(bind=None):
-    Base.metadata.create_all(bind=bind or engine)
-
-
-def _log_schema_drift(drift):
-    total_count = len(drift)
-    applied_items = [item for item in drift if getattr(item, 'applied', False)]
-    pending_items = [item for item in drift if not getattr(item, 'applied', False)]
-    kind_counter = Counter(item.kind for item in drift)
-    applied_counter = Counter(item.kind for item in applied_items)
-    pending_counter = Counter(item.kind for item in pending_items)
-
-    kind_text = ', '.join(f'{kind}={count}' for kind, count in sorted(kind_counter.items())) or 'none'
-    logger.info(
-        f'数据库结构检查完成 | drift_count={total_count}, applied_count={len(applied_items)}, '
-        f'pending_count={len(pending_items)}, kinds={kind_text}'
-    )
-
-    for kind in sorted(kind_counter):
-        items = [item for item in drift if item.kind == kind]
-        examples = ', '.join(f'{item.table}.{item.name}' for item in items[:5])
-        logger.info(
-            f'数据库结构漂移明细 | kind={kind}, total={kind_counter[kind]}, '
-            f'applied={applied_counter.get(kind, 0)}, pending={pending_counter.get(kind, 0)}, '
-            f'examples={examples or "none"}'
-        )
-
-    if pending_items:
-        for item in pending_items[:20]:
-            logger.warning(
-                f'数据库结构未自动修复 | kind={item.kind}, target={item.table}.{item.name}, detail={item.detail or ""}'
-            )
-        if len(pending_items) > 20:
-            logger.warning(f'数据库结构未自动修复项过多，已省略其余 {len(pending_items) - 20} 条')
-
-
-
-def repair_database_schema():
-    drift = sync_schema(apply=True)
-    if not drift:
-        logger.info('数据库结构检查完成，未发现可修复项')
-        return []
-
-    _log_schema_drift(drift)
-    return drift
-
-
-def load_system_config():
-    with session_scope() as session:
-        config = session.query(Config).filter(Config.key == SystemConfigEnum.SYSTEM_CONFIG.value).first()
-        if config and config.content:
-            system_config = json.loads(config.content)
-            config_manager.reload(system_config)
-
-
-def load_downloader_manager():
-    manager_module = _safe_import('app.modules.downloadclient.manager')
-    if manager_module is None:
-        return
-    download_manager = getattr(manager_module, 'downloadManager', None)
-    if download_manager is None:
-        logger.warning('下载器管理器不可用，已跳过加载')
-        return
-
-    with session_scope() as session:
-        configs = session.query(Config).filter(Config.key.ilike('Downloader.%')).all()
-        for config in configs:
-            spec = DOWNLOAD_CLIENT_SPECS.get(config.key)
-            if not spec:
-                continue
-            module = _safe_import(spec[0])
-            if module is None:
-                continue
-            client_cls = getattr(module, spec[1], None)
-            if client_cls is None:
-                logger.warning(f'下载器类不存在，已跳过 | key={config.key}, class={spec[1]}')
-                continue
-            try:
-                download_manager.register(client_cls(json.loads(config.content)))
-            except Exception:
-                logger.exception(f'下载器注册失败，已跳过 | key={config.key}')
-
-
-def load_pusher_manager():
-    manager_module = _safe_import('app.modules.notification.manager')
-    if manager_module is None:
-        return
-    push_manager = getattr(manager_module, 'pushManager', None)
-    if push_manager is None:
-        logger.warning('推送管理器不可用，已跳过加载')
-        return
-
-    with session_scope() as session:
-        configs = session.query(Config).filter(Config.key.ilike('Notification.%')).all()
-        for config in configs:
-            spec = PUSHER_SPECS.get(config.key)
-            if not spec:
-                continue
-            module = _safe_import(spec[0])
-            if module is None:
-                continue
-            notifier_cls = getattr(module, spec[1], None)
-            if notifier_cls is None:
-                logger.warning(f'推送器类不存在，已跳过 | key={config.key}, class={spec[1]}')
-                continue
-            try:
-                push_manager.register(notifier_cls(json.loads(config.content)))
-            except Exception:
-                logger.exception(f'推送器注册失败，已跳过 | key={config.key}')
-
-
-def load_media_server_manager():
-    media_module = _safe_import('app.modules.mediaserver')
-    if media_module is None:
-        return
-    media_server_manager = getattr(media_module, 'mediaServerManager', None)
-    if media_server_manager is None:
-        logger.warning('媒体库管理器不可用，已跳过加载')
-        return
-
-    with session_scope() as session:
-        configs = session.query(Config).filter(Config.key.ilike('MediaServer.%')).all()
-        for config in configs:
-            try:
-                media_server_manager.reload(config.key, json.loads(config.content))
-            except Exception:
-                logger.exception(f'媒体库配置加载失败，已跳过 | key={config.key}')
-
-
-def include_routers(app: FastAPI):
-    for module_path, prefix, tags in ROUTER_SPECS:
-        module = _safe_import(module_path)
-        if module is None:
-            continue
-        router = getattr(module, 'router', None)
-        if router is None:
-            logger.warning(f'路由对象不存在，已跳过 | module={module_path}')
-            continue
-        app.include_router(router, prefix=prefix, tags=tags)
-
-
+from datetime import datetime,timezone
+from pathlib import Path
+import pandas as pd
+from fastapi import FastAPI,HTTPException,UploadFile,File
+from fastapi.responses import FileResponse,StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel,Field
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy import text,func
+from app.core.database import Base,engine,session_scope
+from app.core.config import config_manager
+from app.models import Article,Task,Batch,BatchItem,TaskLog,Config,Converted
+from app.collector import sync
+from app.collector import service,runtime
+from app.scheduler.sht_sheduler import section_map
+scheduler=BackgroundScheduler()
+def schedule():
+ scheduler.remove_all_jobs()
+ cfg=sync.settings()
+ scheduler.add_job(sync.process,"interval",minutes=cfg["fallback_minutes"],id="sync-fallback",max_instances=1)
+ if cfg["mode"]=="scheduled":scheduler.add_job(sync.process,CronTrigger.from_crontab(cfg["cron"]),id="sync-scheduled",max_instances=1)
+ with session_scope() as db:
+  for t in db.query(Task).filter(Task.enabled==True).all():
+   if t.cron:scheduler.add_job(runtime.launch,CronTrigger.from_crontab(t.cron),args=[t.params],id=str(t.id),max_instances=1)
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    ensure_database_schema()
-    _safe_call('upgrade', upgrade)
-    repair_database_schema()
-    from app.migration.access_tokens import migrate_access_tokens
-    migrate_access_tokens()
-    _safe_call('load_system_config', load_system_config)
-    _safe_call('load_downloader_manager', load_downloader_manager)
-    _safe_call('load_pusher_manager', load_pusher_manager)
-    _safe_call('load_media_server_manager', load_media_server_manager)
+async def lifespan(app):
+ Base.metadata.create_all(engine)
+ with session_scope() as db:
+  config=db.get(Config,'network')
+  if config:config_manager.reload(config.content)
+  for batch in db.query(Batch).filter(Batch.status=='running').all():batch.status='interrupted';batch.message='服务重启中断，已保存的数据可手动合并'
+ schedule();scheduler.start();yield
+ runtime.stop.set();scheduler.shutdown(wait=False)
+app=FastAPI(title='色花堂采集器',lifespan=lifespan)
+class Filters(BaseModel):
+ website:str|None=None;section:str|None=None;source:str|None=None;batch_id:int|None=None;merge_status:str|None=None;keyword:str|None=None;ids:list[int]|None=None;sections:list[str]|None=None;keep_section:str|None=None;min_tid:int|None=None;max_tid:int|None=None
+class Plan(BaseModel):
+ name:str=Field(min_length=1);section_id_list:list[str]=Field(min_length=1);start_page:int=Field(default=1,ge=1);max_page:int|None=Field(default=None,ge=1);cron:str|None=None;enabled:bool=False
+ def params(self):
+  if any(x not in section_map for x in self.section_id_list):raise HTTPException(422,'未知板块')
+  if self.max_page and self.max_page<self.start_page:raise HTTPException(422,'结束页不能小于起始页')
+  return self.model_dump(include={'section_id_list','start_page','max_page'})
+@app.get('/api/overview')
+def overview():
+ with session_scope() as db:
+  return dict(total=db.query(Article).count(),pending=db.query(Article).filter(Article.merge_status=='pending').count(),active=runtime.active,sections=section_map,groups=[dict(section=s,source=o,count=c) for s,o,c in db.query(Article.section,Article.source,func.count()).group_by(Article.section,Article.source)],batches=[service.serialize(b) for b in db.query(Batch).order_by(Batch.id.desc()).limit(30)])
+@app.post('/api/articles/search')
+def articles(f:Filters,page:int=1):
+ with session_scope() as db:
+  q=service.filtered(db,f.model_dump());return {'total':q.count(),'items':[service.serialize(a) for a in q.order_by(Article.id.desc()).offset((max(1,page)-1)*30).limit(30)]}
+@app.post('/api/convert')
+def preview(f:Filters):
+ with session_scope() as db:
+  out=[]
+  for a in service.filtered(db,f.model_dump()).limit(10):
+   try:out.append({'id':a.id,'target':service.convert(a)})
+   except Exception as e:out.append({'id':a.id,'error':str(e)})
+  return out
+@app.post('/api/merge')
+def merge(f:Filters):
+ if runtime.active:raise HTTPException(409,'采集中请等待结束')
+ return sync.process(f.model_dump())
+@app.post('/api/import/file')
+async def upload(file:UploadFile=File(...)):
+ data=await file.read(50*1024*1024+1)
+ if len(data)>50*1024*1024:raise HTTPException(413,'文件上限 50 MiB')
+ name=(file.filename or '').lower()
+ try:
+  if name.endswith('.csv'):
+   try:df=pd.read_csv(io.BytesIO(data),dtype={'tid':str})
+   except UnicodeDecodeError:df=pd.read_csv(io.BytesIO(data),encoding='gb18030',dtype={'tid':str})
+  else:raise ValueError('仅支持 CSV')
+  rows=df.astype(object).where(pd.notnull(df),None).to_dict('records');return service.ingest(rows,'file')
+ except Exception as e:raise HTTPException(422,str(e))
+@app.post('/api/export')
+def export(f:Filters,format:str="csv"):
+ with session_scope() as db:
+  rows=[service.serialize(a) for a in service.filtered(db,f.model_dump())]
+ for row in rows:
+  for k in ['magnet','edk','preview_images']:row[k]=json.dumps(row[k] or [],ensure_ascii=False)
+ if format=='xlsx':
+  for row in rows:
+   for key in ['create_time','update_time','merged_at']:
+    if row.get(key):row[key]=row[key].isoformat()
+  stream=io.BytesIO();pd.DataFrame(rows).to_excel(stream,index=False,engine='openpyxl')
+  return StreamingResponse(iter([stream.getvalue()]),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':'attachment; filename=immortal-articles.xlsx'})
+ return StreamingResponse(iter([pd.DataFrame(rows).to_csv(index=False).encode('utf-8-sig')]),media_type='text/csv',headers={'Content-Disposition':'attachment; filename=immortal-articles.csv'})
+def deletion(f,db):
+ if not f.sections:raise HTTPException(422,'请至少选择一个板块')
+ return db.query(Article).filter(Article.section.in_(f.sections)).order_by(Article.id).all()
+@app.post('/api/cleanup/preview')
+def cleanup_preview(f:Filters):
+ with session_scope() as db:
+  rows=deletion(f,db);ids=[a.id for a in rows];return {'count':len(ids),'confirmation':hashlib.sha256(json.dumps(ids).encode()).hexdigest(),'sections':sorted(set(a.section for a in rows))}
+class Cleanup(BaseModel):
+ filters:Filters;confirmation:str
+@app.post('/api/cleanup')
+def cleanup(body:Cleanup):
+ if runtime.active or sync.lock.locked():raise HTTPException(409,'采集或同步运行中不能清理，请稍后重试')
+ with session_scope() as db:
+  rows=deletion(body.filters,db);ids=[a.id for a in rows]
+  if hashlib.sha256(json.dumps(ids).encode()).hexdigest()!=body.confirmation:raise HTTPException(409,'范围已变化，请重新预览')
+  db.query(Converted).filter(Converted.article_id.in_(ids)).delete(synchronize_session=False)
+  for a in rows:db.delete(a)
+  db.add(Batch(kind='cleanup',status='completed',message=f'清理暂存数据 {len(ids)} 条；不删除目标表',finished_at=datetime.now(timezone.utc)))
+  return {'deleted':len(ids)}
+@app.get('/api/tasks')
+def tasks():
+ with session_scope() as db:return [service.serialize(t) for t in db.query(Task).order_by(Task.id)]
+@app.post('/api/tasks')
+def save_task(p:Plan):
+ params=p.params()
+ if p.cron:
+  try:CronTrigger.from_crontab(p.cron)
+  except Exception:raise HTTPException(422,'Cron 格式错误')
+ with session_scope() as db:db.add(Task(name=p.name,params=params,cron=p.cron,enabled=p.enabled))
+ schedule();return {'ok':True}
+@app.put('/api/tasks/{tid}')
+def edit_task(tid:int,p:Plan):
+ params=p.params()
+ if p.cron:
+  try:CronTrigger.from_crontab(p.cron)
+  except Exception:raise HTTPException(422,'Cron 格式错误')
+ with session_scope() as db:
+  task=db.get(Task,tid)
+  if not task:raise HTTPException(404,'计划不存在')
+  task.name=p.name;task.params=params;task.cron=p.cron;task.enabled=p.enabled
+ schedule();return {'ok':True}
+@app.delete('/api/tasks/{tid}')
+def delete_task(tid:int):
+ with session_scope() as db:
+  t=db.get(Task,tid)
+  if t:db.delete(t)
+ schedule();return {'ok':True}
+@app.post('/api/tasks/run')
+def run(p:Plan):
+ try:return {'batch_id':runtime.launch(p.params())}
+ except ValueError as e:raise HTTPException(409,str(e))
+@app.post('/api/tasks/stop')
+def stop():runtime.stop.set();return {'message':'将在当前请求或步骤结束后停止'}
+@app.get('/api/logs/{bid}')
+def logs(bid:int):
+ with session_scope() as db:return [service.serialize(l) for l in db.query(TaskLog).filter_by(batch_id=bid).order_by(TaskLog.id.desc()).limit(300)]
+@app.get('/api/settings')
+def settings():
+ cfg=config_manager.get();return {'PROXY':cfg.PROXY or '','FLARE_SOLVERR_URL':cfg.FLARE_SOLVERR_URL or '','database':engine.url.render_as_string(hide_password=True),'target':'immortal_article_target（测试表）'}
+class Network(BaseModel):
+ PROXY:str='';FLARE_SOLVERR_URL:str=''
+@app.post('/api/settings')
+def settings_save(n:Network):
+ payload=n.model_dump()
+ with session_scope() as db:
+  c=db.get(Config,'network')
+  if c:c.content=payload
+  else:db.add(Config(key='network',content=payload))
+ config_manager.reload(payload);return {'ok':True}
+@app.get('/api/health')
+def health():
+ with engine.connect() as conn:conn.execute(text('select 1'))
+ return {'database':True,'target':'immortal_article_target','authentication':'none'}
+dist=Path('/frontend/dist') if os.environ.get('DOCKER_ENV') else Path(__file__).resolve().parents[2]/'frontend/dist'
 
-    scheduler_module = _safe_import('app.scheduler')
-    if scheduler_module is not None:
-        _safe_call('start_scheduler', getattr(scheduler_module, 'start_scheduler'))
 
-    logger.success('服务已启动 http://127.0.0.1:8000')
-    from app.core.version import get_current_version
-    logger.success(f'当前版本号:{get_current_version()}')
-    yield
+class SyncSettings(BaseModel):
+ mode:str='realtime'
+ cron:str='0 * * * *'
+ fallback_minutes:int=Field(default=15,ge=1,le=1440)
+@app.get('/api/sync/settings')
+def sync_settings():return sync.settings()
+@app.post('/api/sync/settings')
+def sync_settings_save(payload:SyncSettings):
+ if payload.mode not in ('realtime','scheduled'):raise HTTPException(422,'未知同步方式')
+ try:CronTrigger.from_crontab(payload.cron)
+ except Exception:raise HTTPException(422,'Cron 格式错误')
+ with session_scope() as db:
+  row=db.get(Config,'sync')
+  if row:row.content=payload.model_dump()
+  else:db.add(Config(key='sync',content=payload.model_dump()))
+ schedule();return payload.model_dump()
 
-    if scheduler_module is not None:
-        scheduler = getattr(scheduler_module, 'scheduler', None)
-        if scheduler is not None and getattr(scheduler, 'running', False):
-            _safe_call('scheduler_shutdown', scheduler.shutdown, wait=True)
-
-
-app = FastAPI(lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=['*'],
-    allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
-)
-
-@app.middleware('http')
-async def prepare_request_and_audit(request: Request, call_next):
-    # Inspect the config namespace before checking a POST config permission.
-    if request.method == 'POST' and request.url.path.rstrip('/') == '/api/v1/config':
-        try:
-            request.state.config_key = (await request.json()).get('key', '')
-        except (ValueError, AttributeError):
-            return JSONResponse(status_code=422, content={'detail': 'Invalid config payload'})
-    response = await call_next(request)
-    token_id = getattr(request.state, 'token_id', None)
-    if token_id:
-        from app.models.token import TokenAudit
-        try:
-            with session_scope() as db:
-                db.add(TokenAudit(token_id=token_id, method=request.method, path=request.url.path, status_code=response.status_code))
-        except Exception:
-            logger.exception('令牌操作记录写入失败')
-    return response
-
-include_routers(app)
-
-if os.path.isdir(DIST_DIR):
-    app.mount('/', StaticFiles(directory=DIST_DIR), name='frontend')
-else:
-    logger.warning(f'前端静态目录不存在，已跳过挂载 | dir={DIST_DIR}')
-
-
-@app.exception_handler(StarletteHTTPException)
-async def not_found_exception_handler(request: Request, exc: StarletteHTTPException):
-    if request.url.path.startswith('/api'):
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={'code': exc.status_code, 'message': exc.detail},
-        )
-
-    if os.path.isdir(DIST_DIR):
-        return FileResponse(os.path.join(DIST_DIR, 'index.html'))
-    return JSONResponse(status_code=404, content={'code': 404, 'message': exc.detail})
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(traceback.format_exc())
-    return JSONResponse(
-        status_code=500,
-        content={'code': 500, 'message': 'internal server error', 'data': None},
-    )
-
-
-@app.get('/')
-async def read_index():
-    if os.path.isdir(DIST_DIR):
-        return FileResponse(os.path.join(DIST_DIR, 'index.html'))
-    return JSONResponse(status_code=404, content={'code': 404, 'message': 'frontend dist not found'})
+if dist.exists():app.mount('/',StaticFiles(directory=str(dist),html=True),name='frontend')

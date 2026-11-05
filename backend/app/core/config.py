@@ -13,7 +13,6 @@ class Settings(BaseSettings):
     DATABASE_URL: str | None = None
     PROXY: str | None = None
     FLARE_SOLVERR_URL: str | None = None
-    JAVDB_API_HOST: str | None = None
     POSTGRES_HOST: str | None = None
     POSTGRES_PORT: str | None = None
     POSTGRES_USER: str | None = None

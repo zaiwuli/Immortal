@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 from app.core.config import config_manager
 from app.core.database import session_scope
 from app.models import Article
+from app.collector.runtime import check_stop, current_batch, record_items
 from app.utils.movie_number import extract_primary_movie_number
 from app.utils import logger, safe_post
 
@@ -45,6 +46,7 @@ def sync_article_common(
         logger.info(f"[{site_name}][{section}] 数据库最大TID: {stop_tid}")
 
     while page <= max_page:
+        check_stop()
         time.sleep(1)
         logger.info(f"[{site_name}][{section}] 抓取第 {page} 页")
 
@@ -88,6 +90,7 @@ def sync_article_common(
         logger.info(f"[{site_name}][{section}] 尚未抓取的TID列表: {un_existing_ids}")
 
         for tid in tid_list:
+            check_stop()
             if tid in existing_article_tids:
                 continue
 
@@ -156,6 +159,7 @@ def retry_fail(
     remain_fail_ids = []
 
     for tid in fail_id_list:
+        check_stop()
         try:
             data = get_detail_func(tid)
             if not data:
@@ -194,9 +198,10 @@ def retry_fail(
 
 
 def save_articles(articles):
+    check_stop()
     with session_scope() as session:
         stmt = insert(Article).values([
-            {"tid": a.tid,
+            {"batch_id": current_batch(), "source": "crawl", "merge_status": "pending", "tid": a.tid,
              "title": a.title,
              "website": a.website,
              "match_number": a.match_number,
@@ -216,7 +221,9 @@ def save_articles(articles):
             index_elements=["tid", "website"]
         )
 
-        session.execute(stmt)
+        new_tids = session.execute(stmt.returning(Article.tid)).scalars().all()
+    if new_tids:
+        record_items(new_tids)
 
 
 def create_session(session):

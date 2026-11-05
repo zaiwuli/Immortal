@@ -1,10 +1,9 @@
 from app.scheduler.crawler_scheduler import sync_article_common, destroy_session, create_session
 from app.modules.crawler.sht import sht
 from app.utils import logger
-from app.utils.wrapper import task_monitor
 
 
-@task_monitor
+
 def sync_sht_by_max_page(max_page=None, section_id_list=None, start_page=None):
     logger.info(f'开始执行色花堂爬虫任务 | max_page={max_page}, section_id_list={section_id_list}, start_page={start_page}')
     result = sync_sht(max_page=max_page, section_id_list=section_id_list, start_page=start_page)
