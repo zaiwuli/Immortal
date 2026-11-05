@@ -11,6 +11,7 @@ WORKDIR /app
 ENV DOCKER_ENV=true PYTHONUNBUFFERED=1 TZ=Asia/Shanghai SEHUATANG_COLLECTOR_VERSION=0.1.0
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+RUN python -c "from sqlalchemy import create_engine; [create_engine('postgresql+' + driver + '://postgres:postgres@localhost/avdb').dispose() for driver in ('psycopg', 'psycopg2')]"
 COPY backend/app ./app
 COPY --from=frontend /source/backend/frontend/dist /frontend/dist
 CMD ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000"]
