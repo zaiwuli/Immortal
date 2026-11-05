@@ -21,14 +21,14 @@ docker compose up -d
 
 启动先检查 Avdb 原有 `article` 表及所需字段；缺少时启动失败，不自行创建或迁移 Avdb 主表。只自动创建以下 6 张采集器表：
 
-- sehuatang_collector_article：采集与 CSV 导入的原始记录
-- sehuatang_collector_article_converted：转换结果、内容指纹及同步状态
-- sehuatang_collector_task：采集计划
-- sehuatang_collector_batch：批次汇总
-- sehuatang_collector_task_log：采集日志
-- sehuatang_collector_config：网络及同步设置
+- immortal_article：采集与 CSV 导入的原始记录
+- immortal_article_converted：转换结果、内容指纹及同步状态
+- immortal_task：采集计划
+- immortal_batch：批次汇总
+- immortal_task_log：采集日志
+- immortal_config：网络及同步设置
 
-不会创建额外的测试目标表或批次明细表。升级时自动将六张旧 immortal_ 表原地改名为 sehuatang_collector_ 前缀，保留数据、配置和日志；新旧表同时存在时停止启动并提示先合并数据。旧版本额外的测试表不自动删除。不要将开发测试库直接当作正式 Avdb 使用。
+不会创建额外的测试目标表或批次明细表。已有 immortal_ 表直接复用，不自动改名、迁移或删除 sehuatang_collector_ 表，以免操作其他工具的数据。如上一版本已经在该前缀下存有采集数据，需要确认归属后再单独迁移。不要将开发测试库直接当作正式 Avdb 使用。
 
 ## 采集和同步
 
