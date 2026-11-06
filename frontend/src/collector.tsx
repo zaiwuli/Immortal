@@ -477,7 +477,7 @@ function App() {
                     : `当前筛选 ${total.toLocaleString()} 条` }
                 </span>
               </div>
-              <div className="table-wrap">
+              <div className="table-wrap article-table">
                 <table>
                   <thead>
                     <tr>
@@ -568,13 +568,13 @@ function App() {
             </section>
           </>
         )}
-        {page==='采集任务'&&taskTab==='失败补抓'&&<section className="panel">
+        {page==='采集任务'&&taskTab==='失败补抓'&&<section className="panel retry-panel">
           <h2>失败补抓</h2><p>额外自动补抓最多三次，仍失败后转手动。数据库恢复不消耗补抓次数。</p>
           <div className="status-tabs">{Object.entries({waiting:'自动等待',running:'补抓中',manual:'待手动补抓',recovered:'已恢复',ignored:'已忽略'}).map(([v,l])=><button key={v} className={retryStatus===v?'active':''} onClick={()=>{setRetryStatus(v);setRetryPage(1);setRetrySelected([]);setRetryAll(false)}}>{l}</button>)}</div>
           {retryStatus!=='running'&&<div className="toolbar"><label><input type="checkbox" checked={retryAll} onChange={e=>{setRetryAll(e.target.checked);setRetrySelected([])}}/>选择筛选全部（{retryTotal}）</label>
           {['waiting','manual'].includes(retryStatus)&&<button onClick={()=>retryAction('run')}>手动补抓</button>}
           <button onClick={()=>retryAction('restart')}>重新开启自动补抓</button><button onClick={()=>retryAction('ignore')}>忽略</button><button className="danger" onClick={()=>retryAction('delete')}>删除记录</button></div>}
-          <table><thead><tr><th></th><th>帖子 / 板块</th><th>自动 / 手动次数</th><th>最近原因</th><th>下次执行</th></tr></thead><tbody>{retryRows.map(r=><tr key={r.id}><td><input type="checkbox" disabled={r.status==='running'||retryAll} checked={retryAll||retrySelected.includes(r.id)} onChange={e=>setRetrySelected(e.target.checked?[...retrySelected,r.id]:retrySelected.filter(i=>i!==r.id))}/></td><td><a href={`https://sehuatang.org/thread-${r.tid}-1-2.html`} target="_blank" rel="noreferrer">{r.tid}</a><p>{r.section}</p></td><td>{r.auto_attempts} / {r.manual_attempts}</td><td>{r.error||'—'}</td><td>{r.next_run?new Date(r.next_run).toLocaleString():'—'}</td></tr>)}</tbody></table>
+          <table className="retry-table"><thead><tr><th></th><th>帖子 / 板块</th><th>自动 / 手动次数</th><th>最近原因</th><th>下次执行</th></tr></thead><tbody>{retryRows.map(r=><tr key={r.id}><td><input type="checkbox" disabled={r.status==='running'||retryAll} checked={retryAll||retrySelected.includes(r.id)} onChange={e=>setRetrySelected(e.target.checked?[...retrySelected,r.id]:retrySelected.filter(i=>i!==r.id))}/></td><td><a href={`https://sehuatang.org/thread-${r.tid}-1-2.html`} target="_blank" rel="noreferrer">{r.tid}</a><p>{r.section}</p></td><td data-label="自动 / 手动次数">{r.auto_attempts} / {r.manual_attempts}</td><td data-label="最近原因">{r.error||'—'}</td><td data-label="下次执行">{r.next_run?new Date(r.next_run).toLocaleString():'—'}</td></tr>)}</tbody></table>
           {!retryRows.length&&<p>暂无记录</p>}<div className="toolbar"><span>共 {retryTotal} 条 · 第 {retryPage} 页</span><button disabled={retryPage<=1} onClick={()=>{setRetryPage(retryPage-1);setRetrySelected([])}}>上一页</button><button disabled={retryPage*50>=retryTotal} onClick={()=>{setRetryPage(retryPage+1);setRetrySelected([])}}>下一页</button></div>
         </section>}
         {page === '采集任务' && (
