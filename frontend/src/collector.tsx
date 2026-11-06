@@ -93,7 +93,9 @@ function App() {
   const csvInput = useRef<HTMLInputElement>(null)
   const [taskTab, setTaskTab] = useState('采集配置')
   const [settingsTab, setSettingsTab] = useState('网络')
-  const [logTab, setLogTab] = useState('批次记录')
+  const [syncHistory, setSyncHistory] = useState<{id:number;create_time:string;status:string;message:string}[]>([])
+
+  const [logTab, setLogTab] = useState('运行日志')
   const [statusFilter, setStatusFilter] = useState('')
   const [allFiltered, setAllFiltered] = useState(false)
   const [resolution, setResolution] = useState<{operation: string; filters: unknown; confirmation: string; items: {id: number; tid: number; title: string; size: number | null; target_tid: number; available: boolean; existing_title: string | null; existing_website: string | null}[]} | null>(null)
@@ -167,6 +169,7 @@ function App() {
       confirmation: string
       sections: string[]
     } | null>(null)
+  useEffect(() => {if (page === '日志' && logTab === '同步记录') api('/sync/history').then(setSyncHistory).catch((e) => setError(e.message))}, [page, logTab])
   const filters = () => ({
     merge_status: statusFilter || null,
     section: section || null,
@@ -236,8 +239,8 @@ function App() {
   return (
     <div className="shell">
       <aside>
-        <div className="brand">色花堂采集器</div>
-        <div className="brand-caption">拾取新帖 · 有序归档</div>
+        <div className="brand"><span className="brand-icon"><img src="/shiliu-icon.png" alt="" /></span><span>拾流</span></div>
+        <div className="brand-caption">采集 · 整理 · 同步</div>
         <nav>
           {['文章管理', '采集任务', '日志', '设置'].map((p) => (
             <button
@@ -307,7 +310,7 @@ function App() {
         )}
         {page === '日志' && (
           <div className="subnav">
-            {['运行日志', '批次记录', '详细日志'].map((t) => (
+            {['运行日志', '采集记录', '同步记录'].map((t) => (
               <button
                 key={t}
                 className={logTab === t ? 'selected' : ''}
@@ -325,7 +328,7 @@ function App() {
               <strong>{overview.total}</strong>
             </div>
             <div>
-              <small>待合并</small>
+              <small>待同步</small>
               <strong>{overview.pending}</strong>
             </div>
             <div>
@@ -343,7 +346,18 @@ function App() {
         {error && <div className="error">{error}</div>}
         {page === '文章管理' && (
           <>
-            <section className="panel">
+        <section className="panel sync-card"><div className="toolbar"><h2>同步动态</h2><button onClick={() => {setPage('日志');setLogTab('同步记录')}}>查看历史</button></div>                {syncProgress && (syncProgress.running || syncProgress.total > 0 || syncProgress.error) && (
+                  <span role="status">
+                    {syncProgress.running ? '同步中' : '同步结束'}：{syncProgress.processed}/{syncProgress.total}
+                    {' · '}{chineseLog(syncProgress.stats)}
+                    {syncProgress.error && ` · ${syncProgress.error}`}
+                  </span>
+                )}
+{!syncProgress?.total && <p>{overview.sync_queued ? '等待后台同步队列' : '暂无正在执行的同步任务'}</p>}</section>
+            <div className="status-tabs">
+              {Object.entries({'':'全部',pending:'待同步',failed:'失败',conflict:'冲突',inserted:'已新增',existing:'已存在'}).map(([value,label]) => <button key={value} className={statusFilter === value ? 'active' : ''} onClick={() => {setStatusFilter(value);setSelected([]);setAllFiltered(false);setNum(1)}}>{label}</button>)}
+            </div>
+            <section className="panel article-panel">
               <div className="toolbar article-tools">
                 <button
                   disabled={busy}
@@ -370,15 +384,28 @@ function App() {
                   />
                 </span>
                 <button
-                  onClick={() => {
-                    setCleanOpen(true)
-                    setCleanup(null)
-                    setCleanSections([])
+                  onClick={async () => {
+                    try {
+                      const r = await fetch('/api/export', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(filters()),
+                      })
+                      if (!r.ok) throw Error('导出失败')
+                      const u = URL.createObjectURL(await r.blob())
+                      const a = document.createElement('a')
+                      a.href = u
+                      a.download = 'shiliu-articles.csv'
+                      a.click()
+                      URL.revokeObjectURL(u)
+                    } catch (e) {
+                      setError((e as Error).message)
+                    }
                   }}
                 >
-                  清理板块
+                  {selected.length ? '导出选中项' : '导出 CSV'}
                 </button>
-                <span>采集与 CSV 共用原始表，后台按设置增量同步</span>
+                <details className="more-actions"><summary>更多操作</summary><button className="danger" onClick={() => {setCleanOpen(true);setCleanup(null);setCleanSections([])}}>清理板块</button></details>
               </div>
               <div className="toolbar">
                 <input
@@ -402,10 +429,6 @@ function App() {
                     <option key={s}>{s}</option>
                   ))}
                 </select>
-                <select value={statusFilter} onChange={(e) => {setStatusFilter(e.target.value);setSelected([]);setAllFiltered(false);setNum(1)}}>
-                  <option value="">全部状态</option>
-                  {Object.entries({pending:'待合并',inserted:'已新增',existing:'已存在',failed:'失败',conflict:'冲突'}).map(([value,label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
                 <button
                   onClick={() => {
                     setSelected([])
@@ -415,16 +438,11 @@ function App() {
                   搜索
                 </button>
               </div>
-              <div className="toolbar">
-                <button
-                  disabled={busy}
-                  onClick={() => action(() => api('/convert', filters()))}
-                >
-                  转换预览
-                </button>
+              <div className="toolbar batch-actions">
+                {["pending", "failed", "conflict"].includes(statusFilter) && <>
                 <button
                   className="primary"
-                  disabled={busy || syncProgress?.running}
+                  disabled={busy || syncProgress?.running || statusFilter === 'conflict'}
                   onClick={() => {
                     if (
                       confirm(
@@ -434,44 +452,16 @@ function App() {
                       action(() => api('/merge', filters()))
                   }}
                 >
-                  {syncProgress?.running ? '正在同步…' : '处理并同步'}
+                  {statusFilter === 'failed' ? '重试同步' : statusFilter === 'conflict' ? '等待手动处理' : '同步待处理'}
                 </button>
                 <label><input type="checkbox" checked={allFiltered} onChange={(e) => {setAllFiltered(e.target.checked);setSelected([])}} />选择筛选全部（{total} 条）</label>
                 {statusFilter === 'failed' && <button disabled={busy || syncProgress?.running} onClick={() => prepareResolution('clear_size')}>大小留空并同步</button>}
                 {statusFilter === 'conflict' && <button disabled={busy || syncProgress?.running} onClick={() => prepareResolution('resolve_conflict')}>使用备用 TID 同步</button>}
-                {syncProgress && (syncProgress.running || syncProgress.total > 0 || syncProgress.error) && (
-                  <span role="status">
-                    {syncProgress.running ? '同步中' : '同步结束'}：{syncProgress.processed}/{syncProgress.total}
-                    {' · '}{chineseLog(syncProgress.stats)}
-                    {syncProgress.error && ` · ${syncProgress.error}`}
-                  </span>
-                )}
-                <button
-                  onClick={async () => {
-                    try {
-                      const r = await fetch('/api/export', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(filters()),
-                      })
-                      if (!r.ok) throw Error('导出失败')
-                      const u = URL.createObjectURL(await r.blob())
-                      const a = document.createElement('a')
-                      a.href = u
-                      a.download = 'sehuatang-collector-articles.csv'
-                      a.click()
-                      URL.revokeObjectURL(u)
-                    } catch (e) {
-                      setError((e as Error).message)
-                    }
-                  }}
-                >
-                  导出 CSV
-                </button>
+                </>}
                 <span>
                   {selected.length
                     ? `已选 ${selected.length} 条`
-                    : '未选择时操作当前筛选范围'}
+                    : `当前筛选 ${total.toLocaleString()} 条` }
                 </span>
               </div>
               <div className="table-wrap">
@@ -520,7 +510,7 @@ function App() {
                           <span className={'badge ' + a.merge_status}>
                             {(
                               {
-                                pending: '待合并',
+                                pending: '待同步',
                                 inserted: '已新增',
                                 existing: '已存在',
                                 failed: '失败',
@@ -535,7 +525,7 @@ function App() {
                 </table>
                 {!rows.length && (
                   <div className="empty">
-                    暂无文章，可先导入旧库或 CSV 文件。
+                    暂无文章，可导入 CSV 或开始采集。
                   </div>
                 )}
               </div>
@@ -827,9 +817,16 @@ function App() {
             </button>
           </section>
         )}
-        {page === '日志' && logTab === '批次记录' && (
+        {page === '日志' && logTab === '同步记录' && (
           <section className="panel">
-            <h2>批次记录</h2>
+            <div className="toolbar"><h2>同步记录</h2><button onClick={() => api('/sync/history').then(setSyncHistory)}>刷新</button></div>
+            {!syncHistory.length && <div className="empty">暂无同步历史，新版运行后开始记录。</div>}
+            {syncHistory.map((entry) => <div className="list-row" key={entry.id}><div><strong>#{entry.id} · {new Date(entry.create_time).toLocaleString()} · {chineseLog(entry.status)}</strong><p>{chineseLog(entry.message)}</p></div><button onClick={() => {setOutput(chineseLog(entry.message));setLogTab('详细日志')}}>查看详情</button></div>)}
+          </section>
+        )}
+        {page === '日志' && logTab === '采集记录' && (
+          <section className="panel">
+            <h2>采集记录</h2>
             {overview.batches.map((b) => (
               <div className="list-row" key={b.id}>
                 <div>

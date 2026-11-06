@@ -469,3 +469,41 @@ header h1 {
   color: #8a979e;
   margin: 8px 0 0;
 }
+
+.status-tabs {display:flex;gap:8px;flex-wrap:wrap;margin:26px 0 16px}
+.status-tabs button {border:1px solid transparent;background:transparent;color:#718087;padding:10px 20px;border-radius:9px}
+.status-tabs button.active {background:#e6efec;color:#24685e;border-color:#cfdfd9;font-weight:600}
+.article-tools {justify-content:flex-end;border-bottom:1px solid #edf0f2;padding-bottom:18px;margin-bottom:20px}
+.more-actions {position:relative;font-size:13px;color:#65757d}
+.more-actions summary {cursor:pointer;padding:10px;list-style:none}
+.more-actions button {position:absolute;right:0;top:36px;min-width:120px;z-index:3;background:white;box-shadow:0 8px 24px #253b4215}
+.batch-actions {min-height:32px;color:#829097;font-size:13px}
+.sync-card {margin-top:18px;background:#f8faf9;border:1px solid #e2eae6}
+.sync-card h2 {font-size:15px;margin:0;flex:1}
+.sync-card [role=status] {display:block;padding:12px 0;color:#49665b;line-height:1.8}
+.article-panel .badge {white-space:nowrap}
+
+.sync-card {margin:0 0 18px;padding:16px 22px}
+.sync-card .toolbar {margin-bottom:0}
+
+.stats {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.stats > div {padding:14px 18px;min-height:76px;box-sizing:border-box}
+.stats small {font-size:12px;margin-bottom:6px;display:block}
+.stats strong {font-size:21px;line-height:1.3;display:block}
+.stats > div:nth-child(n+3) strong {font-size:15px;padding-top:4px}
+.sync-card {margin-bottom:14px;padding:14px 18px}
+.sync-card [role=status] {padding:8px 0 0;font-size:13px}
+.status-tabs {margin:18px 0 14px}
+@media(max-width:640px) {.stats {gap:6px}.stats > div {padding:10px 8px;min-height:68px}.stats small {font-size:10px}.stats strong {font-size:17px}.stats > div:nth-child(n+3) strong {font-size:12px}}
+
+.brand {display:flex;align-items:center;gap:12px;font-size:23px}
+.brand-icon {display:flex;align-items:center;justify-content:center;width:44px;height:44px;flex-shrink:0;border-radius:12px;background:#eef6f2}
+.brand-icon img {width:38px;height:38px;object-fit:contain}
+.brand-caption {padding-left:56px}
+
+.brand-icon {background:#edf4ff}
+.brand-icon img {transform:translateY(-1px)}
+
+/* The original artwork has extra transparent space below its visible shape. */
+.brand-icon {background:#eef6f2;overflow:hidden}
+.brand-icon img {width:44px;height:44px;max-width:none;flex-shrink:0;transform:translateY(1.1px)}

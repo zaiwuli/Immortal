@@ -1,5 +1,5 @@
 services:
-  sehuatang-collector:
+  shiliu:
     build:
       context: ..
       dockerfile: backend/Dockerfile

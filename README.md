@@ -1,12 +1,12 @@
-# 色花堂采集器
+# 拾流
 
-仓库：https://github.com/zaiwuli/sehuatang-collector
+仓库：https://github.com/zaiwuli/shiliu
 
-无账号的色花堂采集后台，支持文章管理、CSV 导入、智能增量或指定页采集、转换同步和中文日志。仅部署于可信网络。
+无账号的资源采集与同步后台，支持文章管理、CSV 导入、智能增量或指定页采集、转换同步和中文日志。仅部署于可信网络。
 
 ## Docker 部署
 
-镜像：`ghcr.io/zaiwuli/sehuatang-collector:latest`，GitHub Actions 构建 linux/amd64 与 linux/arm64。
+镜像：`ghcr.io/zaiwuli/shiliu:latest`，GitHub Actions 构建 linux/amd64 与 linux/arm64。
 
 复制 `.env.example` 为 `.env`，将 DATABASE_URL 指向已经初始化的 Avdb PostgreSQL 数据库，然后执行：
 
@@ -21,14 +21,14 @@ docker compose up -d
 
 启动先检查 Avdb 原有 `article` 表及所需字段；缺少时启动失败，不自行创建或迁移 Avdb 主表。只自动创建以下 6 张采集器表：
 
-- immortal_article：采集与 CSV 导入的原始记录
-- immortal_article_converted：转换结果、内容指纹及同步状态
-- immortal_task：采集计划
-- immortal_batch：批次汇总
-- immortal_task_log：采集日志
-- immortal_config：网络及同步设置
+- shiliu_article：采集与 CSV 导入的原始记录
+- shiliu_article_converted：转换结果、内容指纹及同步状态
+- shiliu_task：采集计划
+- shiliu_batch：批次汇总
+- shiliu_task_log：采集日志
+- shiliu_config：网络及同步设置
 
-不会创建额外的测试目标表或批次明细表。已有 immortal_ 表直接复用，不自动改名、迁移或删除 sehuatang_collector_ 表，以免操作其他工具的数据。如上一版本已经在该前缀下存有采集数据，需要确认归属后再单独迁移。不要将开发测试库直接当作正式 Avdb 使用。
+不会创建额外的测试目标表或批次明细表。已有 shiliu_ 表直接复用，不自动改名、迁移或删除 sehuatang_collector_ 表，以免操作其他工具的数据。如上一版本已经在该前缀下存有采集数据，需要确认归属后再单独迁移。不要将开发测试库直接当作正式 Avdb 使用。
 
 ## 采集和同步
 
@@ -54,3 +54,8 @@ magnet 与 edk 数组去重后换行写入 Avdb magnet，图片以逗号连接�
 转换表增加 target_tid 和 size_cleared 字段，启动自动补充，无新增表。成功映射持久保存，后续同步复用。
 
 实时同步遇到其他同步占用时在后台等待，不丢弃新增批次。正常采集结束后等待队列并补处理本批次待同步文章，页面显示采集与同步阶段；失败和冲突仍需手动确认。定时模式不触发实时收尾。运行日志最新记录显示在最上方。
+
+## 从旧版升级
+
+先停止旧版采集器，再将镜像地址改为 ghcr.io/zaiwuli/shiliu:latest 后启动。新版启动会在事务中将六张 immortal_ 表改名为 shiliu_，保留文章、设置、日志和映射；新旧同名用途表同时存在时停止迁移。Avdb article 不改名。旧版容器不要与新版同时运行；回退旧版需先反向迁移表名。
+同步历史保存到原有批次及日志表，日志中的同步记录展示最近 100 次执行结果。历史版本未保存的同步执行无法补回。

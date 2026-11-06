@@ -4,7 +4,7 @@ from sqlalchemy.dialects.postgresql import insert
 from concurrent.futures import ThreadPoolExecutor
 from app.utils.log import logger
 from app.core.database import session_scope
-from app.models import Article,Converted,Target,Config
+from app.models import Article,Converted,Target,Config,Batch,TaskLog
 from app.collector.service import convert,filtered
 lock=threading.Lock()
 DEFAULT={'mode':'realtime','cron':'0 * * * *','fallback_minutes':15}
@@ -27,11 +27,14 @@ def process(filters=None,reserved=False,operation=None,wait=False):
   if reserved:
    with progress_lock:progress['running']=False
   return {'busy':True}
+ history_id=None
  stats={'inserted':0,'existing':0,'skipped':0,'failed':0,'conflict':0}
  try:
   with session_scope() as db:
    ids=[item[0] for item in filtered(db,filters or {}).with_entities(Article.id).order_by(Article.id).all()]
   with progress_lock:progress.update(running=True,processed=0,total=len(ids),stats=dict(stats),error=None)
+  with session_scope() as db:
+   history=Batch(kind='sync',status='running',message=json.dumps({'operation':operation or ('实时同步' if wait else '手动或定时同步'),'total':len(ids)},ensure_ascii=False));db.add(history);db.flush();history_id=history.id
   logger.info(f'开始转换同步，共 {len(ids)} 条文章')
   for offset in range(0,len(ids),500):
    with session_scope() as db:
@@ -74,6 +77,13 @@ def process(filters=None,reserved=False,operation=None,wait=False):
   logger.exception('转换同步异常中断')
   raise
  finally:
+  try:
+   if history_id:
+    with session_scope() as db:
+     history=db.get(Batch,history_id);history.status='failed' if progress.get('error') else 'completed';history.finished_at=datetime.now(timezone.utc)
+     history.message=json.dumps({'operation':operation or ('实时同步' if wait else '手动或定时同步'),'total':progress.get('total',0),'stats':stats,'error':progress.get('error')},ensure_ascii=False)
+     db.add(TaskLog(batch_id=history_id,message=history.message))
+  except Exception:logger.exception('同步历史保存失败')
   with progress_lock:progress.update(running=False,stats=dict(stats))
   lock.release()
 def tick():

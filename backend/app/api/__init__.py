@@ -42,7 +42,7 @@ async def lifespan(app):
   for batch in db.query(Batch).filter(Batch.status=='running').all():batch.status='interrupted';batch.message='服务重启中断，已保存的数据可手动合并'
  schedule();scheduler.start();yield
  runtime.stop.set();scheduler.shutdown(wait=False)
-app=FastAPI(title='色花堂采集器',lifespan=lifespan)
+app=FastAPI(title='拾流',lifespan=lifespan)
 class Filters(BaseModel):
  website:str|None=None;section:str|None=None;source:str|None=None;batch_id:int|None=None;merge_status:str|None=None;keyword:str|None=None;ids:list[int]|None=None;sections:list[str]|None=None;keep_section:str|None=None;min_tid:int|None=None;max_tid:int|None=None
 class Plan(BaseModel):
@@ -54,7 +54,7 @@ class Plan(BaseModel):
 @app.get('/api/overview')
 def overview():
  with session_scope() as db:
-  return dict(total=db.query(Article).count(),pending=db.query(Article).filter(Article.merge_status=='pending').count(),active=runtime.active,phase=runtime.phase,sync_queued=runtime.sync_pending,sections=section_map,groups=[dict(section=s,source=o,count=c) for s,o,c in db.query(Article.section,Article.source,func.count()).group_by(Article.section,Article.source)],batches=[service.serialize(b) for b in db.query(Batch).order_by(Batch.id.desc()).limit(30)])
+  return dict(total=db.query(Article).count(),pending=db.query(Article).filter(Article.merge_status=='pending').count(),active=runtime.active,phase=runtime.phase,sync_queued=runtime.sync_pending,sections=section_map,groups=[dict(section=s,source=o,count=c) for s,o,c in db.query(Article.section,Article.source,func.count()).group_by(Article.section,Article.source)],batches=[service.serialize(b) for b in db.query(Batch).filter(Batch.kind!='sync').order_by(Batch.id.desc()).limit(30)])
 @app.post('/api/articles/search')
 def articles(f:Filters,page:int=1):
  with session_scope() as db:
@@ -126,8 +126,8 @@ def export(f:Filters,format:str="csv"):
    for key in ['create_time','update_time','merged_at']:
     if row.get(key):row[key]=row[key].isoformat()
   stream=io.BytesIO();pd.DataFrame(rows).to_excel(stream,index=False,engine='openpyxl')
-  return StreamingResponse(iter([stream.getvalue()]),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':'attachment; filename=sehuatang-collector-articles.xlsx'})
- return StreamingResponse(iter([pd.DataFrame(rows).to_csv(index=False).encode('utf-8-sig')]),media_type='text/csv',headers={'Content-Disposition':'attachment; filename=sehuatang-collector-articles.csv'})
+  return StreamingResponse(iter([stream.getvalue()]),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':'attachment; filename=shiliu-articles.xlsx'})
+ return StreamingResponse(iter([pd.DataFrame(rows).to_csv(index=False).encode('utf-8-sig')]),media_type='text/csv',headers={'Content-Disposition':'attachment; filename=shiliu-articles.csv'})
 def deletion(f,db):
  if not f.sections:raise HTTPException(422,'请至少选择一个板块')
  return db.query(Article).filter(Article.section.in_(f.sections)).order_by(Article.id).all()
@@ -184,6 +184,9 @@ def stop():runtime.stop.set();return {'message':'将在当前请求或步骤结�
 @app.get('/api/logs/{bid}')
 def logs(bid:int):
  with session_scope() as db:return [service.serialize(l) for l in db.query(TaskLog).filter_by(batch_id=bid).order_by(TaskLog.id.desc()).limit(300)]
+@app.get('/api/sync/history')
+def sync_history():
+ with session_scope() as db:return [service.serialize(b) for b in db.query(Batch).filter(Batch.kind=='sync').order_by(Batch.id.desc()).limit(100)]
 @app.get('/api/runtime-logs')
 def runtime_logs():
  from app.utils.log import read_console_logs
