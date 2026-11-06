@@ -17,7 +17,7 @@ postgres_database = config_manager.get().POSTGRES_DB
 
 
 database_url = config_manager.get().DATABASE_URL or f"postgresql://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_database}"
-engine = create_engine(database_url)
+engine = create_engine(database_url, pool_pre_ping=True, pool_recycle=1800)
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
