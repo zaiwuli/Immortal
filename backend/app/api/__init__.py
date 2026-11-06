@@ -12,13 +12,15 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import text,func
 from app.core.database import Base,engine,session_scope
 from app.core.config import config_manager
-from app.models import Article,Task,Batch,TaskLog,Config,Converted,Target
+from app.models import Article,Task,Batch,TaskLog,Config,Converted,Target,Retry
 from app.collector import sync
 from app.collector import service,runtime
 from app.scheduler.sht_sheduler import section_map
 scheduler=BackgroundScheduler()
 def schedule():
  scheduler.remove_all_jobs()
+ from app.collector.retry import tick
+ scheduler.add_job(tick,'interval',seconds=60,id='retry-worker',max_instances=1)
  cfg=sync.settings()
  scheduler.add_job(sync.process,"interval",minutes=cfg["fallback_minutes"],id="sync-fallback",max_instances=1)
  if cfg["mode"]=="scheduled":scheduler.add_job(sync.process,CronTrigger.from_crontab(cfg["cron"]),id="sync-scheduled",max_instances=1)
@@ -40,9 +42,43 @@ async def lifespan(app):
   config=db.get(Config,'network')
   if config:config_manager.reload(config.content)
   for batch in db.query(Batch).filter(Batch.status=='running').all():batch.status='interrupted';batch.message='服务重启中断，已保存的数据可手动合并'
+  for row in db.query(Retry).filter(Retry.status=='running'):row.status=row.resume_status or ('manual' if row.auto_attempts>=3 else 'waiting')
  schedule();scheduler.start();yield
  runtime.stop.set();scheduler.shutdown(wait=False)
 app=FastAPI(title='拾流',lifespan=lifespan)
+@app.get('/api/retries')
+def retries(status:str='waiting',page:int=1):
+ with session_scope() as db:
+  q=db.query(Retry)
+  if status:q=q.filter(Retry.status==status)
+  return {'total':q.count(),'items':[service.serialize(r) for r in q.order_by(Retry.id.desc()).offset((max(page,1)-1)*50).limit(50)]}
+class RetryAction(BaseModel):
+ action:str
+ ids:list[int]|None=None
+ status:str|None=None
+@app.post('/api/retries/action')
+def retry_action(body:RetryAction):
+ from app.collector.retry import launch
+ if body.action not in ('run','ignore','delete','restart'):raise HTTPException(422,'未知操作')
+ if not body.ids and not body.status:raise HTTPException(422,'请选择记录或筛选状态')
+ with runtime.lock:
+  with session_scope() as db:
+   q=db.query(Retry).filter(Retry.status!='running')
+   if body.ids:q=q.filter(Retry.id.in_(body.ids))
+   else:q=q.filter(Retry.status==body.status)
+   rows=q.all();ids=[r.id for r in rows]
+   if body.action=='run':
+    if runtime.active is not None:raise HTTPException(409,'采集或补抓正在运行，请稍后重试')
+    if any(r.status not in ('waiting','manual') for r in rows):raise HTTPException(422,'请先重新启用已忽略记录')
+   else:
+    for r in rows:
+     if body.action=='delete':db.delete(r)
+     elif body.action=='ignore':r.status='ignored';r.next_run=None
+     else:r.status='waiting';r.auto_attempts=0;r.next_run=datetime.now(timezone.utc)
+ if body.action=='run':
+  if not ids:raise HTTPException(422,'没有可补抓记录')
+  if not launch(ids):raise HTTPException(409,'执行器忙碌，请重试')
+ return {'count':len(ids),'message':'补抓任务已开始' if body.action=='run' else '操作完成'}
 class Filters(BaseModel):
  website:str|None=None;section:str|None=None;source:str|None=None;batch_id:int|None=None;merge_status:str|None=None;keyword:str|None=None;ids:list[int]|None=None;sections:list[str]|None=None;keep_section:str|None=None;min_tid:int|None=None;max_tid:int|None=None
 class Plan(BaseModel):

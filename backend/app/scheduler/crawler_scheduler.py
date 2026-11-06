@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.core.config import config_manager
 from app.core.database import session_scope
-from app.models import Article
+from app.models import Article,Retry
 from app.collector.runtime import check_stop, current_batch, record_items
 from app.utils.movie_number import extract_primary_movie_number
 from app.utils import logger, safe_post
@@ -86,6 +86,9 @@ def sync_article_common(
                     .filter(Article.website == site_name)
                 ).scalars().all()
             )
+        with session_scope() as session:
+            ignored_tids={r[0] for r in session.query(Retry.tid).filter(Retry.website==site_name,Retry.status=='ignored',Retry.tid.in_(tid_list)).all()}
+        existing_article_tids |= ignored_tids
         un_existing_ids = list(set(tid_list) - existing_article_tids)
         logger.debug(f"[{site_name}][{section}] 尚未抓取的TID列表: {un_existing_ids}")
 
@@ -108,7 +111,6 @@ def sync_article_common(
                 })
 
                 articles.append(Article(**data))
-                success_count += 1
                 time.sleep(1)
 
             except Exception:
@@ -117,12 +119,8 @@ def sync_article_common(
                 )
                 fail_id_list.append(tid)
         if articles:
-            try:
-                save_articles(articles)
-            except Exception:
-                logger.exception(
-                    f"[{site_name}][{section}] 第{page}页批量入库异常"
-                )
+            save_articles(articles)
+            success_count += len(articles)
 
         # 终止条件
         if use_stop_threshold and min_tid <= stop_tid:
@@ -182,14 +180,10 @@ def retry_fail(
             )
             remain_fail_ids.append(tid)
 
-    # 批量入库
     if articles:
-        try:
-            save_articles(articles)
-        except Exception:
-            logger.exception(
-                f"[{site_name}][{section}] 补抓批量入库异常"
-            )
+        save_articles(articles)
+    from app.collector.recovery import failures
+    failures(site_name, section, remain_fail_ids)
     logger.info(
         f"[{site_name}][{section}] 最终失败列表: {remain_fail_ids}"
     )
@@ -199,31 +193,13 @@ def retry_fail(
 
 def save_articles(articles):
     check_stop()
-    with session_scope() as session:
-        stmt = insert(Article).values([
-            {"batch_id": current_batch(), "source": "crawl", "merge_status": "pending", "tid": a.tid,
-             "title": a.title,
-             "website": a.website,
-             "match_number": a.match_number,
-             "publish_date": a.publish_date,
-             "magnet":a.magnet,
-             "edk":a.edk,
-             "preview_images":a.preview_images,
-             "detail_url":a.detail_url,
-             "size":a.size,
-             "section":a.section,
-             "category":a.category
-             }
-            for a in articles
-        ])
-
-        stmt = stmt.on_conflict_do_nothing(
-            index_elements=["tid", "website"]
-        )
-
-        new_tids = session.execute(stmt.returning(Article.tid)).scalars().all()
-    if new_tids:
-        record_items(new_tids)
+    from app.collector.recovery import write_page
+    rows=[]
+    for a in articles:
+        row={key:getattr(a,key) for key in ('tid','title','website','match_number','publish_date','magnet','edk','preview_images','detail_url','size','section','category')}
+        row.update(batch_id=current_batch(),source='crawl',merge_status='pending')
+        rows.append(row)
+    write_page(rows)
 
 
 def create_session(session):

@@ -95,6 +95,18 @@ function App() {
   const [settingsTab, setSettingsTab] = useState('网络')
   const [syncHistory, setSyncHistory] = useState<{id:number;create_time:string;status:string;message:string}[]>([])
 
+  const [retryStatus,setRetryStatus]=useState('waiting')
+  const [retryRows,setRetryRows]=useState<{id:number;tid:number;section:string;status:string;auto_attempts:number;manual_attempts:number;error:string;next_run:string|null}[]>([])
+  const [retryTotal,setRetryTotal]=useState(0)
+  const [retryPage,setRetryPage]=useState(1)
+  const [retrySelected,setRetrySelected]=useState<number[]>([])
+  const [retryAll,setRetryAll]=useState(false)
+  const loadRetries=async()=>{const r=await api(`/retries?status=${retryStatus}&page=${retryPage}`);setRetryRows(r.items);setRetryTotal(r.total)}
+  const retryAction=async(action:string)=>{
+    if(!retryAll&&!retrySelected.length){setError('请先选择记录');return}
+    if(!confirm(`确认${action==='delete'?'删除补抓记录（不删除文章）':action==='ignore'?'忽略':action==='restart'?'重置自动补抓次数':'手动补抓'} ${retryAll?retryTotal:retrySelected.length} 条？`))return
+    try {await api('/retries/action',{action,ids:retryAll?null:retrySelected,status:retryAll?retryStatus:null});setRetrySelected([]);await loadRetries()}catch(e){setError((e as Error).message)}
+  }
   const [logTab, setLogTab] = useState('运行日志')
   const [statusFilter, setStatusFilter] = useState('')
   const [allFiltered, setAllFiltered] = useState(false)
@@ -170,6 +182,7 @@ function App() {
       sections: string[]
     } | null>(null)
   useEffect(() => {if (page === '日志' && logTab === '同步记录') api('/sync/history').then(setSyncHistory).catch((e) => setError(e.message))}, [page, logTab])
+  useEffect(()=>{if(page!=='采集任务'||taskTab!=='失败补抓')return;loadRetries().catch(e=>setError(e.message));const timer=setInterval(()=>loadRetries().catch(()=>{}),5000);return()=>clearInterval(timer)},[page,taskTab,retryStatus,retryPage])
   const filters = () => ({
     merge_status: statusFilter || null,
     section: section || null,
@@ -278,7 +291,7 @@ function App() {
         </header>
         {page === '采集任务' && (
           <div className="subnav">
-            {['采集配置', '定时计划'].map((t) => (
+            {['采集配置', '定时计划', '失败补抓'].map((t) => (
               <button
                 key={t}
                 className={taskTab === t ? 'selected' : ''}
@@ -334,7 +347,7 @@ function App() {
             <div>
               <small>采集状态</small>
               <strong>
-                {overview.active ? (overview.phase === 'syncing' ? '采集完成 · 同步收尾中' : '采集中 #' + overview.active) : '空闲'}
+                {overview.active ? (overview.phase === 'syncing' ? '采集完成 · 同步收尾中' : overview.phase === 'retrying' ? '补抓中 #' + overview.active : '采集中 #' + overview.active) : '空闲'}
               </strong>
             </div>
             <div>
@@ -555,6 +568,15 @@ function App() {
             </section>
           </>
         )}
+        {page==='采集任务'&&taskTab==='失败补抓'&&<section className="panel">
+          <h2>失败补抓</h2><p>额外自动补抓最多三次，仍失败后转手动。数据库恢复不消耗补抓次数。</p>
+          <div className="status-tabs">{Object.entries({waiting:'自动等待',running:'补抓中',manual:'待手动补抓',recovered:'已恢复',ignored:'已忽略'}).map(([v,l])=><button key={v} className={retryStatus===v?'active':''} onClick={()=>{setRetryStatus(v);setRetryPage(1);setRetrySelected([]);setRetryAll(false)}}>{l}</button>)}</div>
+          {retryStatus!=='running'&&<div className="toolbar"><label><input type="checkbox" checked={retryAll} onChange={e=>{setRetryAll(e.target.checked);setRetrySelected([])}}/>选择筛选全部（{retryTotal}）</label>
+          {['waiting','manual'].includes(retryStatus)&&<button onClick={()=>retryAction('run')}>手动补抓</button>}
+          <button onClick={()=>retryAction('restart')}>重新开启自动补抓</button><button onClick={()=>retryAction('ignore')}>忽略</button><button className="danger" onClick={()=>retryAction('delete')}>删除记录</button></div>}
+          <table><thead><tr><th></th><th>帖子 / 板块</th><th>自动 / 手动次数</th><th>最近原因</th><th>下次执行</th></tr></thead><tbody>{retryRows.map(r=><tr key={r.id}><td><input type="checkbox" disabled={r.status==='running'||retryAll} checked={retryAll||retrySelected.includes(r.id)} onChange={e=>setRetrySelected(e.target.checked?[...retrySelected,r.id]:retrySelected.filter(i=>i!==r.id))}/></td><td><a href={`https://sehuatang.org/thread-${r.tid}-1-2.html`} target="_blank" rel="noreferrer">{r.tid}</a><p>{r.section}</p></td><td>{r.auto_attempts} / {r.manual_attempts}</td><td>{r.error||'—'}</td><td>{r.next_run?new Date(r.next_run).toLocaleString():'—'}</td></tr>)}</tbody></table>
+          {!retryRows.length&&<p>暂无记录</p>}<div className="toolbar"><span>共 {retryTotal} 条 · 第 {retryPage} 页</span><button disabled={retryPage<=1} onClick={()=>{setRetryPage(retryPage-1);setRetrySelected([])}}>上一页</button><button disabled={retryPage*50>=retryTotal} onClick={()=>{setRetryPage(retryPage+1);setRetrySelected([])}}>下一页</button></div>
+        </section>}
         {page === '采集任务' && (
           <>
             {taskTab === '采集配置' && (

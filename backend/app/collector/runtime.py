@@ -60,6 +60,8 @@ def run(bid,params):
  global active,phase
  local.batch_id=bid;status='completed'
  try:
+  from app.collector.recovery import replay
+  replay()
   from app.scheduler.sht_sheduler import sync_sht
   result=sync_sht(**params)
   check_stop()
@@ -76,9 +78,14 @@ def run(bid,params):
   else:merged='等待定时或兜底同步'
   message=f'采集结果：{result}；合并：{merged}'
  except Stopped:status='stopped';message='用户停止，已保存的数据留在暂存表，未自动合并'
- except Exception as e:status='failed';message=f'{type(e).__name__}: {e}'
+ except Exception as e:
+  status='failed';message=f'{type(e).__name__}: {e}'
+  logger.exception('采集任务中断，已保存的恢复缓冲将在数据库恢复后重放')
  finally:
-  with session_scope() as db:
-   b=db.get(Batch,bid);b.status=status;b.message=message;b.finished_at=datetime.now(timezone.utc)
-  local.batch_id=None
-  with lock:active=None;phase='idle'
+  try:
+   with session_scope() as db:
+    b=db.get(Batch,bid);b.status=status;b.message=message;b.finished_at=datetime.now(timezone.utc)
+  except Exception:logger.exception('任务结果保存失败，已保留本地缓冲')
+  finally:
+   local.batch_id=None
+   with lock:active=None;phase='idle'
