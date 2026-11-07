@@ -52,6 +52,13 @@ def retries(status:str='waiting',page:int=1):
   q=db.query(Retry)
   if status:q=q.filter(Retry.status==status)
   return {'total':q.count(),'items':[service.serialize(r) for r in q.order_by(Retry.id.desc()).offset((max(page,1)-1)*50).limit(50)]}
+@app.get('/api/retries/{rid}/links')
+def retry_links(rid:int):
+ with session_scope() as db:
+  row=db.get(Retry,rid)
+  if not row:raise HTTPException(404,'补抓记录不存在')
+  article=db.query(Article).filter_by(website=row.website,tid=row.tid).first()
+  return {'tid':row.tid,'detail_url':article.detail_url if article else f'https://sehuatang.org/thread-{row.tid}-1-2.html','title':article.title if article else None,'magnet':article.magnet if article else [],'edk':article.edk if article else []}
 class RetryAction(BaseModel):
  action:str
  ids:list[int]|None=None

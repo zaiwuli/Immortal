@@ -95,6 +95,7 @@ function App() {
   const [settingsTab, setSettingsTab] = useState('网络')
   const [syncHistory, setSyncHistory] = useState<{id:number;create_time:string;status:string;message:string}[]>([])
 
+  const [retryLinks,setRetryLinks]=useState<{tid:number;detail_url:string;title:string|null;magnet:string[];edk:string[]}|null>(null)
   const [retryStatus,setRetryStatus]=useState('waiting')
   const [retryRows,setRetryRows]=useState<{id:number;tid:number;section:string;status:string;auto_attempts:number;manual_attempts:number;error:string;next_run:string|null}[]>([])
   const [retryTotal,setRetryTotal]=useState(0)
@@ -574,7 +575,7 @@ function App() {
           {retryStatus!=='running'&&<div className="toolbar"><label><input type="checkbox" checked={retryAll} onChange={e=>{setRetryAll(e.target.checked);setRetrySelected([])}}/>选择筛选全部（{retryTotal}）</label>
           {['waiting','manual'].includes(retryStatus)&&<button onClick={()=>retryAction('run')}>手动补抓</button>}
           <button onClick={()=>retryAction('restart')}>重新开启自动补抓</button><button onClick={()=>retryAction('ignore')}>忽略</button><button className="danger" onClick={()=>retryAction('delete')}>删除记录</button></div>}
-          <table className="retry-table"><thead><tr><th></th><th>帖子 / 板块</th><th>自动 / 手动次数</th><th>最近原因</th><th>下次执行</th></tr></thead><tbody>{retryRows.map(r=><tr key={r.id}><td><input type="checkbox" disabled={r.status==='running'||retryAll} checked={retryAll||retrySelected.includes(r.id)} onChange={e=>setRetrySelected(e.target.checked?[...retrySelected,r.id]:retrySelected.filter(i=>i!==r.id))}/></td><td><a href={`https://sehuatang.org/thread-${r.tid}-1-2.html`} target="_blank" rel="noreferrer">{r.tid}</a><p>{r.section}</p></td><td data-label="自动 / 手动次数">{r.auto_attempts} / {r.manual_attempts}</td><td data-label="最近原因">{r.error||'—'}</td><td data-label="下次执行">{r.next_run?new Date(r.next_run).toLocaleString():'—'}</td></tr>)}</tbody></table>
+          <table className="retry-table"><thead><tr><th></th><th>帖子 / 板块</th><th>自动 / 手动次数</th><th>最近原因</th><th>下次执行</th></tr></thead><tbody>{retryRows.map(r=><tr key={r.id}><td><input type="checkbox" disabled={r.status==='running'||retryAll} checked={retryAll||retrySelected.includes(r.id)} onChange={e=>setRetrySelected(e.target.checked?[...retrySelected,r.id]:retrySelected.filter(i=>i!==r.id))}/></td><td><a href={`https://sehuatang.org/thread-${r.tid}-1-2.html`} target="_blank" rel="noreferrer">{r.tid}</a><p>{r.section}</p>{r.status==='recovered'&&<button onClick={()=>api(`/retries/${r.id}/links`).then(setRetryLinks).catch(e=>setError(e.message))}>查看链接</button>}</td><td data-label="自动 / 手动次数">{r.auto_attempts} / {r.manual_attempts}</td><td data-label="最近原因">{r.error||'—'}</td><td data-label="下次执行">{r.next_run?new Date(r.next_run).toLocaleString():'—'}</td></tr>)}</tbody></table>
           {!retryRows.length&&<p>暂无记录</p>}<div className="toolbar"><span>共 {retryTotal} 条 · 第 {retryPage} 页</span><button disabled={retryPage<=1} onClick={()=>{setRetryPage(retryPage-1);setRetrySelected([])}}>上一页</button><button disabled={retryPage*50>=retryTotal} onClick={()=>{setRetryPage(retryPage+1);setRetrySelected([])}}>下一页</button></div>
         </section>}
         {page === '采集任务' && (
@@ -905,6 +906,7 @@ function App() {
             <pre>{output || '请在批次记录中选择一条日志。'}</pre>
           </section>
         )}
+        {retryLinks&&<div className="modal" onClick={()=>setRetryLinks(null)}><section className="panel" onClick={e=>e.stopPropagation()}><div className="toolbar"><h2>补抓结果 · {retryLinks.tid}</h2><button onClick={()=>setRetryLinks(null)}>关闭</button></div><p>{retryLinks.title||'文章记录不存在'}</p><a href={retryLinks.detail_url} target="_blank" rel="noreferrer">打开原帖网页 ↗</a><h3>磁力链接（{retryLinks.magnet.length}）</h3><pre>{retryLinks.magnet.join('\n\n')||'无'}</pre><h3>ED2K（{retryLinks.edk.length}）</h3><pre>{retryLinks.edk.join('\n\n')||'无'}</pre><button onClick={()=>navigator.clipboard.writeText([...retryLinks.magnet,...retryLinks.edk].join('\n')).catch(()=>setError('当前浏览器无法复制，请长按链接手动复制'))}>复制全部链接</button><p>此处展示实际入库链接，请与原帖核对。</p></section></div>}
         {resolution && (
           <div className="modal" onClick={() => setResolution(null)}>
             <section className="panel" style={{maxWidth:'1000px',maxHeight:'85vh',overflow:'auto'}} onClick={(e) => e.stopPropagation()}>

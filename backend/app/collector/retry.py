@@ -46,7 +46,7 @@ def run(bid,ids,manual):
     r=db.get(Retry,rid);tid=r.tid;section=r.section;website=r.website
     exists=db.query(Article).filter_by(tid=tid,website=website).first() is not None
    error=None
-   try:data=None if exists else sht.crawler_detail(tid)
+   try:data=None if exists else sht.crawler_detail(tid, expanded_links=True)
    except Exception as e:data=None;error=f'{type(e).__name__}: {e}'
    if data:
     data.update(tid=tid,section=section,website=website,match_number=_extract_article_match_number(data.get('title')))

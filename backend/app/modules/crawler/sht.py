@@ -254,7 +254,7 @@ class SHT:
                 continue
         return id_list
 
-    def crawler_detail(self, tid):
+    def crawler_detail(self, tid, expanded_links=False):
         url = f"{self.domain}/thread-{tid}-1-2.html"
         html = self.get_original(url)
         if html:
@@ -266,6 +266,12 @@ class SHT:
                     r'ed2k://\|file\|[^|]+\|\d+\|[0-9a-fA-F]{32}\|/',
                     all_text
                 )
+
+                if expanded_links:
+                    from app.modules.crawler.retry_links import extract_links
+                    extra_magnets, extra_ed2k = extract_links(doc)
+                    magnet_list = list(dict.fromkeys(magnet_list + extra_magnets))
+                    ed2k_list = list(dict.fromkeys(ed2k_list + extra_ed2k))
 
                 # 没有磁力则尝试所有 torrent 文件
                 if not magnet_list:
